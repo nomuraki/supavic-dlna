@@ -2,7 +2,17 @@
 
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/).
 
-## [1.3.0] - unreleased
+## [1.3.1] - unreleased
+
+### Fixed
+- **Linux / macOS / Docker:** folders and files whose names contain `:` or `\` (e.g. "Hi-Res Masters: '80s Rock")
+  were skipped with `TypeError: stat: path should be string… not NoneType`. Those characters are only off-limits on
+  Windows; they're now accepted everywhere else. Reported by **apwiggins** (#2).
+- A name that can't be resolved no longer raises an error while rendering a list; it's simply left out.
+- If the system decodes file names with something other than UTF-8, the server logs a warning on startup
+  (fix: `LANG=C.UTF-8`), and responses replace invalid characters instead of failing.
+
+## [1.3.0] - 2026-10-29
 
 Includes everything in 1.2.0, which was never published on its own. Thanks again to **simbun** for the third round
 of feedback: most of this release comes from it.
@@ -36,6 +46,12 @@ of feedback: most of this release comes from it.
 - `ARTISTS`/`ALBUMARTISTS` and the release date are cached too, so the cache is re-read once after updating.
 
 ### Fixed
+- **Duplicate albums**: loose tracks of an album that live in other folders (playlists, downloads) are now part of
+  that album instead of showing up as another "21" with 1 or 2 tracks. Two folders that are both full albums with
+  the same title (reissues) stay separate, and the title shows the folder to tell them apart: "21 [2011] · 21
+  Deluxe".
+- **Wrong artist pictures**: an artist whose only tracks sit in a mixed folder (e.g. a playlist) showed the cover
+  of that folder's first track, another artist's. It now shows the cover of their own album.
 - "▶ All tracks" in folders is counted and listed straight from disk, so it's right even before the background
   reading has finished (it used to show only the tracks already in the tag index, e.g. "All tracks (1)" for a
   folder with 45 songs).

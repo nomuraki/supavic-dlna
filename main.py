@@ -48,7 +48,7 @@ try:
 except ImportError:          # funciona sin Pillow, pero manda las portadas sin redimensionar
     Image = None
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 APP = "SupaVic DLNA"
 
 
@@ -1098,7 +1098,9 @@ class Biblioteca:
         if raiz is None:
             return None
         partes = [p for p in rel.split("/") if p]
-        if any(p in (".", "..") or ":" in p or "\\" in p for p in partes):
+        # ".." nunca (no salir de la carpeta de música). En Windows tampoco ":" ni "\\" (C:, rutas mezcladas);
+        # en Linux/macOS son caracteres válidos en un nombre ("Hi-Res Masters: '80s Rock", "AC\\DC").
+        if any(p in (".", "..") or "\x00" in p or (ES_WINDOWS and (":" in p or "\\" in p)) for p in partes):
             return None
         return os.path.join(raiz[0], *partes) if partes else raiz[0]
 
@@ -1118,6 +1120,8 @@ class Biblioteca:
         fresco=True (la carpeta que se está navegando): siempre se lee del disco.
         Si no, se usa la caché solo si la fecha de la carpeta no cambió Y tiene menos de TTL_LISTADO segundos.
         Si el listado nuevo difiere del cacheado, se avisa a los controles (SystemUpdateID)."""
+        if not ruta:                                     # ruta que no se pudo resolver: nada que listar
+            return None
         if not validar and not fresco:                   # solo para números (childCount/conteos): sin tocar el disco
             with self.dir_lock:
                 c = self.dir_cache.get(ruta)
@@ -1835,6 +1839,34 @@ class Indice:
                 dalb = f"{key}/{_carpeta_album(carpeta)}"
                 crudos.append((crudo, dalb))
                 carpetas_de[crudo].add(dalb)
+            # 1b) pistas sueltas (carpetas con varios álbumes: playlists, descargas) se unen al álbum "de verdad"
+            #     con el mismo título y artista, en vez de salir como otro "21" repetido. Dos carpetas que SON
+            #     álbumes completos con el mismo título (reediciones) siguen separadas.
+            por_dalb, n_crudo_dalb = defaultdict(set), Counter()
+            for crudo, dalb in crudos:
+                por_dalb[dalb].add(crudo)
+                n_crudo_dalb[(crudo, dalb)] += 1
+            principal = {}                               # (título, artista) -> (crudo, dalb) del álbum con más pistas
+            for (crudo, dalb), n in n_crudo_dalb.items():
+                if len(por_dalb[dalb]) == 1:             # carpeta de un solo álbum
+                    k = (_norm(crudo[0]), _norm(crudo[1]) if not crudo[1].startswith(f"{dalb.split('/', 1)[0]}/") else "")
+                    if k not in principal or n > n_crudo_dalb[principal[k]]:
+                        principal[k] = (crudo, dalb)
+            sin_aa = {}                                  # álbumes sin albumartist: (título, artista de pista) -> principal
+            for i, (crudo, dalb) in enumerate(crudos):
+                if len(por_dalb[dalb]) == 1 and not pistas[i]["m"].get("aartist"):
+                    sin_aa.setdefault((_norm(crudo[0]), _norm(pistas[i]["m"].get("artist", ""))), (crudo, dalb))
+            for i, (crudo, dalb) in enumerate(crudos):
+                if len(por_dalb[dalb]) > 1:              # pista suelta en una carpeta mezclada
+                    m = pistas[i]["m"]
+                    aa = m.get("aartist")
+                    dest = principal.get((_norm(crudo[0]), _norm(aa))) if aa else \
+                        sin_aa.get((_norm(crudo[0]), _norm(m.get("artist", ""))))
+                    if dest and dest != (crudo, dalb):
+                        crudos[i] = dest
+            carpetas_de = defaultdict(set)
+            for crudo, dalb in crudos:
+                carpetas_de[crudo].add(dalb)
             # 2) álbumes
             for i, p in enumerate(pistas):
                 self._ceder(i)
@@ -1874,6 +1906,9 @@ class Indice:
                     if gs is None:
                         gs = generos_txt[gtxt] = _multi(gtxt, ";/")
                     a["generos"].update(gs)
+            for a in albumes.values():                    # carpeta del álbum = donde está la mayoría de sus pistas
+                if len(a["pistas"]) > 1:
+                    a["dir"] = Counter(pistas[i]["dir"] for i in a["pistas"]).most_common(1)[0][0]
             por_carpeta = defaultdict(set)
             for a in albumes.values():
                 por_carpeta[(a["key"], a["dir"])].add(a["id"])
@@ -1914,6 +1949,10 @@ class Indice:
                         for n in nombres_artistas(mi.get("arts"), mi.get("artist", "")):
                             if _hid(n) in interpretes:
                                 interpretes[_hid(n)].setdefault("emb", i)
+            iguales = Counter((_norm(a["titulo"]), _norm(a["artista"])) for a in albumes.values())
+            for a in albumes.values():                    # dos "21" de Adele (reediciones): " · <carpeta>"
+                if iguales[(_norm(a["titulo"]), _norm(a["artista"]))] > 1:
+                    a["disamb"] = _carpeta_album(a["dir"]).rsplit("/", 1)[-1] or self.app.bib.raices[a["key"]][1]
             por_anio = lambda aid: (albumes[aid]["anio"] or 9999, _orden(albumes[aid]["titulo"]))
             por_titulo = lambda aid: (_orden(albumes[aid]["asort"] or albumes[aid]["titulo"]),)
             for ar in artistas.values():                         # compilaciones: por título (o albumsort), no por año
@@ -2000,7 +2039,11 @@ class Indice:
                 return ""
             x = d["pistas"][a["pistas"][0]]["m"].get("x") or {}
             return x.get(k, "")
-        return plantilla(plant or v["plantillas"]["album"], campos, extra)
+        t = plantilla(plant or v["plantillas"]["album"], campos, extra)
+        dis = a.get("disamb")
+        if dis and _norm(dis) not in _norm(t):
+            t += f" · {dis}"
+        return t
 
     def n_albumes(self, d, aids):
         return sum(len(d["albumes"][a]["pistas"]) for a in set(aids))
@@ -2042,7 +2085,7 @@ class Indice:
                 if not a:
                     continue
                 carpeta = bib.resolver(a["key"], _carpeta_album(a["dir"]))
-                if not carpeta:
+                if not carpeta or a.get("mixto"):         # una playlist no es la carpeta del artista
                     continue
                 for c in ([carpeta, os.path.dirname(carpeta)] if a["dir"] else [carpeta]):
                     if c in vistos:
@@ -2061,10 +2104,15 @@ class Indice:
                 ruta = bib.resolver(p["key"], p["rel"])
                 if ruta:
                     src = ("emb_ar", ruta)
-        if not src and aid in d["albumes"]:
+        if not src and aid in d["albumes"]:                # la portada de SU álbum, no la de la carpeta
             a = d["albumes"][aid]
-            ruta = bib.resolver(a["key"], a["dir"])
-            src = bib.fuente_portada_carpeta(ruta, max_prof=0) if ruta else None
+            if a.get("mixto") and a["pistas"]:            # carpeta mezclada: la de su primera pista
+                p = d["pistas"][a["pistas"][0]]
+                ruta = bib.resolver(p["key"], p["rel"])
+                src = bib.fuente_portada_pista(ruta) if ruta else None
+            else:
+                ruta = bib.resolver(a["key"], a["dir"])
+                src = bib.fuente_portada_carpeta(ruta, max_prof=0) if ruta else None
         with self.lock:
             self._art_ar[ck] = (time.monotonic(), src)
             while len(self._art_ar) > 4096:
@@ -3602,7 +3650,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, code, body=b"", ctype='text/xml; charset="utf-8"', headers=None, head=False):
         if isinstance(body, str):
-            body = body.encode("utf-8")
+            # nombres que no son UTF-8 válido (sistema con locale no UTF-8): reemplazar en vez de fallar
+            body = body.encode("utf-8", "replace")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -4655,6 +4704,9 @@ def arrancar(verbose=False):
     log.info("─── %s %s (Python %s) · data: %s ───", APP, VERSION, sys.version.split()[0], DIR_BASE)
     if Image is None:
         log.warning("Pillow is not installed: covers are sent without resizing")
+    if sys.getfilesystemencoding().lower().replace("-", "") != "utf8":
+        log.warning("File names are decoded as %s, not UTF-8: names with accents or emoji may not show correctly. "
+                    "Set LANG=C.UTF-8 (or run Python with -X utf8)", sys.getfilesystemencoding())
     if not app.cfg["musica"]["carpetas"]:
         log.warning("No music folders configured yet. Add them at http://127.0.0.1:%d/", app.puerto)
 
