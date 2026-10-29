@@ -32,19 +32,41 @@ Ahí van `config.json` y `datos/` (log, pid, eventos, historial y, si `cache.dir
 
 ## Servidor (resumen)
 
-- IDs sin estado: `d<raiz>:<rel>` carpeta, `t<raiz>:<rel>` pista, `<raiz>` = sha1[:8] de la ruta configurada.
+- IDs sin estado: `d<raiz>:<rel>` carpeta, `t<raiz>:<rel>` pista, `<raiz>` = `clave_raiz()`: sha1[:8] del NOMBRE de la
+  carpeta configurada (no la ruta: cambiar de unidad no rompe favoritos; nombres repetidos llevan sufijo `#n`).
+  La 1.1 usaba la ruta completa (`clave_raiz_vieja`, solo para migrar `reproducciones.db`).
   Vistas: `v:<vista>[@letra]`, `v:ar:`, `v:ia:<id>[:al:<aid>]` (artistas de pista), `v:al:`, `v:ge:[…:ar:]`, `v:de:`,
-  `…:todas`, `v:carpeta:<raiz>:<rel>:todas`, `v:carpetas` (contenedor opcional de las carpetas).
+  `…:todas`, `v:carpeta:<raiz>:<rel>:todas`, `v:carpetas` (contenedor opcional de las carpetas), `v:tocadas`, `v:mas_tocadas`.
+- Motor de vistas por niveles (`Indice._x_*`): predefinidas en `PRESETS_X` (`compositores`, `directores`, `sellos`,
+  `calidad`) y las del usuario en `vistas.personalizadas` (id `c…`). IDs: `v:<vid>[@letra]`, `v:<vid>:<h0>[:<h1>…][@letra]`,
+  `…:al:<aid>`; `<h>` = `_hid(valor)` (10 hex, estable) o `_` = sin ese tag. `_x_preparar` precalcula por construcción
+  del índice `vals[nivel][pista]` (tuplas compartidas, memo por dato crudo) e `inv0`; los nodos se cachean en `_x_cache`.
+  Niveles calculados: `NIVELES_CALC` (`albumartist`, `#decada`, `#calidad`…); el resto son tags extra (`m["x"]`), y solo
+  se cargan en memoria los que usan las vistas activas o las plantillas (`claves_x_necesarias`).
+- Títulos: `plantilla()` (compilada y cacheada) con `vistas.plantillas` (`raiz`, `contenedor`, `album`); `Indice.nc()` /
+  `Indice.na()`. Campos en español o inglés (`_ALIAS_CAMPO`).
 - Álbum = (album, albumartist) o (album, carpeta) sin albumartist; si el mismo par aparece en varias carpetas
   (sin contar subcarpetas `CD1`/`Disc 2`) se separa por carpeta. IDs iguales que antes si no hay homónimos.
-- `VERSION_LECTOR` (PRAGMA user_version de cache.db): súbelo si cambia lo que se extrae de los tags; la caché de tags
-  se vacía una vez al arrancar (las portadas se conservan).
+- `VERSION_LECTOR` (PRAGMA user_version de cache.db, hoy 3): súbelo si cambia lo que se extrae de los tags; la caché de
+  tags se vacía una vez al arrancar (las portadas se conservan). v3 guarda `x` (tags extra normalizados, `tags_extra`),
+  `add` (ENCODINGTIME) y `pt` (tipos de imagen embebida si no es solo la frontal); v4 `arts`/`aarts` (ARTISTS /
+  ALBUMARTISTS: índices vía `nombres_artistas`; se muestran con `mostrar_artistas` → "A, B & C") y `fecha`/`ry`
+  (fecha de la edición → `dc:date` y `{años}`; `year` sigue siendo el año original).
+- Portadas: fuente → `clave_portada` (archivo + fecha + tamaño) → tabla `portadas` de cache.db → hash del CONTENIDO
+  (+ tamaño/recorte) = nombre del JPEG. Prioridades en `Biblioteca.fuente_portada_pista` / `fuente_portada_carpeta`,
+  `Indice.fuente_artista` (`/art/r/<artista>/<album>.jpg`) y `PRIO_IMG_ALBUM` / `PRIO_IMG_ARTISTA`. La URL de cada pista
+  se decide sin leer imágenes (`url_portada_pista`).
+- "Agregados recientemente": `add` › fecha de creación (Windows, `st_birthtime`/`st_ctime` del scandir del índice) › mtime.
+- `Reproducciones` (`datos/reproducciones.db`, fuera de la caché): +1 cuando un reproductor pide el archivo desde el byte 0
+  (la misma pista en < 60 s no cuenta doble).
 - UDN = uuid5(`servidorMusicaDLNA:<host>:<DIR_BASE>`) — prefijo histórico, no cambiarlo (los reproductores verían otro servidor).
 - La carpeta navegada siempre se lee del disco (`listar(fresco=True)`): en Windows la fecha de una carpeta no cambia
   de forma fiable al mover subcarpetas. Conteos/portadas usan caché.
 - `CacheTags`: SQLite validado por `mtime_ns` + tamaño; si la ruta cambió, busca por identidad (nombre + tamaño + mtime).
-- `Indice`: se construye desde `cache.db` (sin leer audio), en segundo plano, máx. 1/min; verifica existencia con un
-  `scandir` por carpeta. Nombres visibles traducidos (`VISTAS` se rellena en `aplicar_idioma`).
+- `Indice`: se construye desde `cache.db` (sin leer audio), en segundo plano, máx. 1/min y solo tras `QUIETO_SEG`
+  (15 s) sin navegar (salvo el primero o `invalidar()`); `mantener()` lo llama la precarga. Los bucles largos llaman
+  `_ceder()` (sleep corto si alguien navega). Verifica existencia con un `scandir` por carpeta.
+- "▶ Todas las pistas" de carpetas: `Biblioteca.pistas_vivas` / `contar_vivo` (disco, con presupuesto de tiempo). Nombres visibles traducidos (`VISTAS` se rellena en `aplicar_idioma`).
 - `Precargador`: en reposo (`precarga.inactividad_min` sin Browse/portadas ni transferencias) recorre todo; cualquier
   actividad la pausa.
 - `esc()` / DIDL: `upnp:albumArtURI` con `dlna:profileID="JPEG_SM"` si la portada ≤ 640 px.
@@ -56,7 +78,9 @@ Sin suite automática. Verificación usada:
 - Linux: `SUPAVIC_HOME=/tmp/x python launcher.py --sin-bandeja` con una biblioteca de prueba; SOAP Browse a `/ctl/cds`
   (raíz, vistas, "Todas"), `/api/estado`, reinicio por `/api/reiniciar`, SIGTERM.
 - Build congelado: `pyinstaller build/SupaVicDLNA.spec` en Linux valida el spec y las rutas frozen (`LOCALAPPDATA=…`).
-- UI: Playwright sobre `:8200` y `:8202` en es/en, claro/oscuro, sin errores JS.
+- UI: Playwright sobre `:8200` y `:8202` en es/en, claro/oscuro, sin errores JS (pestaña Navegación y editor de vistas).
+- Rendimiento: biblioteca sintética de 48k pistas (archivos vacíos + filas en cache.db) → índice ~2 s, raíz ~60 ms,
+  vistas personalizadas < 10 ms con caché. Comparar contra la versión anterior antes de publicar.
 - Windows real (bandeja, registro, MessageBox, instalador) se prueba a mano.
 
 ## Convenciones

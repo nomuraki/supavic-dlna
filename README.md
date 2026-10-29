@@ -6,7 +6,8 @@
 
 <p align="center">
   A tiny, fast DLNA/UPnP server for your music library.<br>
-  Browse your folders live, or by artist, album, genre and decade, on WiiM Home, BubbleUPnP or any UPnP player.
+  Browse your folders live, or by artist, album, composer, quality or your own tag views, on WiiM Home,
+  BubbleUPnP or any UPnP player. Original files, byte for byte.
 </p>
 
 <p align="center">
@@ -100,6 +101,12 @@ and there's no tray icon outside Windows.
 
 ### Browsing on your player
 
+Two ways to browse, side by side:
+
+- **📁 Folders: instant.** Exactly what's on your disk, read the moment you open a folder. No scan, ever.
+- **🏷 Tag views: filled by the background reading.** Artists, albums, composers… built from your files' tags.
+  They fill in while the server reads the library when it's idle (and as you open folders).
+
 ```
 SupaVic (Living room PC)
 ├── 📁 Music (1,240)                 ← your folders, live from disk, with song counts
@@ -108,55 +115,81 @@ SupaVic (Living room PC)
 │       ├── 📁 [1998] Blue Hour Sessions (6)
 │       └── 📁 [2005] Afterglow (5)
 ├── Artists          → ▶ All tracks · albums by original year: "Afterglow [2005]"
-├── Track artists    → (optional) everyone who appears on a track, featuring included
-├── Albums           → A–Z groups when the list is long
+├── Albums           → the full list (or A–Z groups, if you prefer)
 ├── Genres           → artists → albums
-├── Decades          → albums by year
-├── Recently added   → newest 200 albums
-├── Hi-Res           → albums over 16-bit or 48 kHz
-└── Random           → 100 tracks, reshuffled every 10 minutes
+├── Composers        → composer → albums            (also: Conductors, Record labels)
+├── Quality          → DSD / Hi-Res / CD / compressed → artists → albums
+├── Recently added   → newest 200 albums (by ENCODINGTIME or the date the file reached your disk)
+├── Recently played  → the last 100 tracks played · Most played → your top 100 · Recently modified
+├── Hi-Res · Decades · Random · Track artists
+└── Your own views   → e.g. Genre › Composer › albums, only vinyl rips, only 24-bit…
 ```
 
 - **Live folders**: what's on disk now is what you see. New, moved and renamed folders show up right away, and
   players are notified of changes.
-- **Tag views** in the style of MinimServer and MusicBee, built from the cache. They use album artist,
+- **Tag views** in the style of MinimServer and MusicBee. They use album artist,
   multi-valued tags (repeated `ARTIST=`/`GENRE=` fields, or `;` and `/` separators), `originaldate`,
   `albumsort` and the compilation flag, "Various Artists" detection, and natural sorting that ignores accents and
-  "The". Albums with the same title and artist in different folders (reissues, self-titled albums) stay separate,
+  "The". `ARTISTS` / `ALBUMARTISTS` (Picard) are used for the indexes when present, while titles keep the full
+  credit ("Gorillaz feat. Elton John & 6LACK"); several values are shown as "A, B & C". Albums with the same
+  title and artist in different folders (reissues, self-titled albums) stay separate,
   while `CD1`/`Disc 2` subfolders are merged into one album. Compilations are sorted by title (or `albumsort`).
+- **Custom views**, built in the control panel (no config files): pick up to three levels from any tag in your
+  library (composer, conductor, label, mood, `SOURCE`, your own `TXXX` tags…) or a computed one (decade,
+  quality, resolution, format, month added), add an optional filter ("genre contains jazz", "source is vinyl",
+  "year ≥ 1990"), and see a live preview with counts before saving. Albums and tracks always come last.
+- **Your titles, your way**: templates such as `{album} [{year}]`, `{year} - {album}`,
+  `{album} [{year}] {quality}` (→ `Kind of Blue [1959] 24/96`), `{album} [{years}] • {version}`
+  (→ `A Night at the Opera [1975/2005] • 30th Anniversary`: original/release year, one if they match) or
+  `{name} ({count})`, with presets to pick from. The release date also goes in `dc:date` so apps can sort by it.
+  Empty values vanish along with their brackets. Any tag works as a field (`{label}`, `{composer}`…).
 - **▶ All tracks** at every level that lists containers, in browse order with no duplicates.
-- **Counts** in titles: songs (`Korn (15)`) or items (`Korn (4)` albums), or none. The year after the album title
-  is optional too, and so is putting your folders inside a "Folders" entry at the root.
 - **UPnP Search** across title, artist, album and genre.
-- **Stable IDs**: favorites and presets on your player keep working after restarts.
+- **Stable IDs**: favorites and presets on your player keep working after restarts, updates and reinstalls.
 
 ### Audio and artwork
 
 - Formats: FLAC, ALAC/AAC/M4A, MP3, OGG Vorbis, Opus, WAV, AIFF, DSF/DFF, WavPack, APE.
-- Streams the **original file** with range requests (seeking) and proper DLNA headers.
+- Streams the **original file**, byte for byte, with range requests (seeking) and proper DLNA headers.
 - Track metadata includes duration, sample rate, bit depth, channels and bitrate, so players can show "FLAC 24/96".
-- Covers come from `cover.jpg` / `folder.jpg` / `front.jpg`… or from the embedded picture. They're resized to
-  JPEG (600 px by default, the DLNA `JPEG_SM` profile), and 16:9 thumbnails are cropped to a square.
-  Each album gets one shared cover, so the player downloads it only once.
+- Covers are resized to JPEG (600 px by default, the DLNA `JPEG_SM` profile), and 16:9 thumbnails are cropped to
+  a square. The server takes the first image it finds, in this order:
+
+  | | 1st | 2nd | 3rd | 4th |
+  |---|---|---|---|---|
+  | **Track** | its embedded front cover | `<disc subtitle>.jpg` | another embedded picture (media/CD label…) | its folder's image |
+  | **Album / folder** | `cover` / `folder` / `front` .jpg/.png | any other image in the folder | its tracks' embedded cover | back cover, CD, booklet… then (optional) a subfolder's image |
+  | **Artist** | `artist.jpg` | `folder.jpg` in a folder named like the artist | embedded artist photo | their first album's cover |
+
+  Embedded picture types follow the FLAC/ID3 spec (front cover, media, artist…). 32 px file icons are never used.
+- Covers are stored **by content**: twelve tracks with the same embedded picture take one file on disk, and the
+  player downloads it once.
+- Folders of loose tracks (playlists, downloads) show each track's own cover, never another track's.
 
 ### Fast without indexing
 
 - Tags are cached in SQLite and checked against file size and modification time.
 - A fast FLAC reader parses only the header blocks: a few KB per file instead of the full embedded picture.
-- When you open a folder, tags are read in parallel. Anything that takes longer than about 1.5 s is shown with
+- When you open a folder, tags are read in parallel. Anything that takes longer than about 1 s is shown with
   names taken from the path (`Artist/[Year] Album/NN. Title`) and finished in the background.
 - **Idle prefetch**: after 5 minutes without browsing, it walks the library and caches tags and covers. It
   pauses the moment someone browses or plays, and clears out entries for deleted files.
 - The cache survives **moving or renaming folders**: files are matched by name, size and timestamp.
 - The cache can live on another drive, such as an SSD (`Settings → Cache folder`).
+- **Browsing always comes first**: the tag index is rebuilt only when nobody is browsing, and if you start
+  browsing mid-rebuild it steps aside, so opening a folder stays instant.
+- Tested with a 48,000-track library: the tag index builds in about 2 seconds, and custom views answer in a few
+  milliseconds once opened.
 
 ### Control panel and dashboard
 
 | Control panel (`:8200`) | Dashboard (`:8202`) |
 |---|---|
-| ![Settings](docs/img/panel-settings-en.png) | ![Dashboard](docs/img/dashboard-en-light.png) |
+| ![Custom view editor](docs/img/panel-browsing-en-editor.png) | ![Dashboard](docs/img/dashboard-en-light.png) |
 
-- **Control panel**: status, connected devices, prefetch progress, folder picker, every setting, cache tools and the log.
+- **Control panel**: status, connected devices, prefetch progress, folder picker, the **Browsing** page (views,
+  title formats, covers and the custom view editor; [full screenshot](docs/img/panel-browsing-en.png)), every
+  setting, cache tools and the log. Every option has a one-line explanation.
 - **Dashboard**: what each player is playing right now (format, position, volume), a listening history
   (tracks played for more than 10 s), live activity, server transfers and 14-day/30-day stats. It runs as a
   separate process, so you can restart it without touching the server.
@@ -210,20 +243,25 @@ Everything is editable in the control panel (**Settings**). It's stored in `conf
 | `servidor.ip` | empty | Empty = announce on every interface. Set an IP to use only one |
 | `servidor.idioma` | `auto` | `auto`, `en` or `es` (player folder names, panel and dashboard) |
 | `servidor.abrir_navegador` | `true` | Open the panel when you start the app yourself (never at Windows sign-in) |
+| `servidor.buscar_actualizaciones` | `true` | The panel tells you about new versions (your browser asks GitHub; the server never goes online) |
 | `musica.carpetas` | `[]` | Your music folders. With a single folder, its subfolders show at the root |
 | `musica.ignorar` | `*.part`, `.*`, … | Name patterns to hide (case-insensitive) |
 | `musica.ordenar_por_tags_hasta` | `150` | Folders with up to this many files are sorted by disc/track number |
 | `musica.agrupar_carpetas` | `false` | Show your folders inside a "Folders" entry at the root instead of directly at the root |
 | `portadas.tamano` | `600` | Cover size in px (`0` = original file) |
 | `portadas.recortar_cuadrado` | `true` | Crop non-square covers |
+| `portadas.por_pista` | `true` | Each track shows its own embedded cover (off = an album's tracks share the album cover) |
+| `portadas.subcarpetas` | `true` | A folder without an image uses the first one in its subfolders |
+| `portadas.artista` | `true` | Artist images (`artist.jpg`, embedded artist photo) in Artists, Composers… |
 | `precarga.activa` | `true` | Idle prefetch of tags and covers |
 | `precarga.inactividad_min` | `5` | Minutes without browsing before prefetch starts |
 | `precarga.repetir_horas` | `12` | Full pass interval (finds new music) |
-| `vistas.activas` | all but `interpretes` | `artistas`, `interpretes` (track artists), `albumes`, `generos`, `decadas`, `recientes`, `hires`, `aleatorio` |
-| `vistas.agrupar_desde` | `200` | Group longer lists by letter (`0` = never) |
-| `vistas.mostrar_conteo` | `true` | Count in parentheses after titles |
-| `vistas.tipo_conteo` | `pistas` | `pistas` = songs; `elementos` = an artist's albums, a genre's artists… (albums get no number) |
-| `vistas.mostrar_anio` | `true` | Year after the album title: `Album [1999]` |
+| `vistas.activas` | see panel | Views at the root, in order: `artistas`, `interpretes`, `albumes`, `generos`, `decadas`, `recientes`, `tocadas`, `mas_tocadas`, `hires`, `aleatorio`, `compositores`, `directores`, `sellos`, `calidad` and your custom view ids |
+| `vistas.agrupar_letras` | `false` | `false` = full lists; `true` = long lists are split into A, B, C… with an "All" entry |
+| `vistas.agrupar_desde` | `200` | With `agrupar_letras`: how many entries a list needs before it's split |
+| `vistas.tipo_conteo` | `pistas` | What `{count}` counts: `pistas` = songs; `elementos` = an artist's albums, a genre's artists… |
+| `vistas.plantillas` | see panel | Title templates: `raiz` (root entries), `contenedor` (artists, genres, folders…), `album` |
+| `vistas.personalizadas` | `[]` | Custom views (`nombre`, `niveles`, `filtro`, `plantilla_album`, `sin_tag`). Easier from **Browsing** in the panel |
 | `dashboard.puerto` | `8202` | Dashboard port |
 | `dashboard.con_servidor` | `true` | The tray app starts and stops the dashboard with the server |
 | `dashboard.renderers` | `[]` | Extra `description.xml` URLs if a player isn't discovered |
@@ -263,6 +301,31 @@ Tags are re-read when a file's size or modified time changes. If your tag editor
 
 Folder browsing is always live. Tag views include what's already in the cache: anything you've browsed, plus
 everything after a prefetch pass. Click **Status → Idle prefetch → Start now** to refresh them right away.
+</details>
+
+<details>
+<summary><b>A tag view (Composers, Labels…) is empty</b></summary>
+
+Those views use tags that many files don't have. **Browsing → Views at the root** shows how many tracks have each
+tag. Views only show what's been read so far, so a new library fills in as the background reading progresses.
+</details>
+
+<details>
+<summary><b>"Recently added" shows old albums</b></summary>
+
+The date comes from `ENCODINGTIME` (`TDEN`) if the file has it. If not, it's the date the file arrived on your
+disk (its creation date on Windows), so editing tags doesn't move albums to the top. Copying files to a new
+drive gives them a new creation date.
+</details>
+
+<details>
+<summary><b>Do track URLs stay the same?</b></summary>
+
+Yes. A URL like `http://192.168.1.20:8200/m/6ec744fc/Adele/21/01.flac` is a short hash of the music folder's
+**name** (`Music`, not the full path) plus the file's path inside it. It doesn't change with restarts, updates,
+reinstalls, a new drive letter or moving the library elsewhere. Container IDs work the same way: artists, albums
+and genres are hashes of their names, so bookmarks on your player keep working. If two of your music folders
+have the same name, the second one gets its own id.
 </details>
 
 <details>
@@ -321,9 +384,13 @@ The [Build Windows release](.github/workflows/release.yml) workflow builds the i
 
 ## Contributing
 
-Issues and pull requests are welcome. Please include your OS, player or app (WiiM Home, BubbleUPnP…) and the
-relevant lines from the log. The code is commented in Spanish. See [`AGENTS.md`](AGENTS.md) for an architecture
-tour.
+Made by **Vic** (`damekko` on the [WiiM forum](https://forum.wiimhome.com/)), a systems guy getting into hi-fi.
+Ideas, bug reports and questions are welcome: open an [issue](../../issues) or a [discussion](../../discussions),
+or post in the WiiM forum thread. Please include your OS, player or app (WiiM Home, BubbleUPnP…) and the relevant
+lines from the log.
+
+Pull requests are welcome too. The code is commented in Spanish. See [`AGENTS.md`](AGENTS.md) for an
+architecture tour, and [`CHANGELOG.md`](CHANGELOG.md) for what changed and who helped.
 
 ## License
 

@@ -6,7 +6,8 @@
 
 <p align="center">
   Un servidor DLNA/UPnP pequeño y rápido para tu biblioteca de música.<br>
-  Navega tus carpetas en vivo, o por artista, álbum, género y década, desde WiiM Home, BubbleUPnP o cualquier reproductor UPnP.
+  Navega tus carpetas en vivo, o por artista, álbum, compositor, calidad o tus propias vistas por tags, desde WiiM Home,
+  BubbleUPnP o cualquier reproductor UPnP. Archivos originales, byte por byte.
 </p>
 
 <p align="center">
@@ -100,6 +101,13 @@ probado, y fuera de Windows no hay icono de bandeja.
 
 ### Lo que ves en tu reproductor
 
+Dos formas de navegar, juntas:
+
+- **📁 Carpetas: al instante.** Tal cual están en tu disco; cada carpeta se lee en el momento en que la abres.
+  Nunca hace falta escanear.
+- **🏷 Vistas por etiquetas: se llenan con la lectura en segundo plano.** Artistas, álbumes, compositores… se arman
+  con los tags de tus archivos mientras el servidor lee la biblioteca en reposo (y al abrir carpetas).
+
 ```
 SupaVic (PC de la sala)
 ├── 📁 Música (1,240)                ← tus carpetas, en vivo desde el disco, con número de canciones
@@ -107,57 +115,83 @@ SupaVic (PC de la sala)
 │       ├── ▶ Todas las pistas (11)  ← reproduce un artista o un árbol de carpetas completo
 │       ├── 📁 [1998] Blue Hour Sessions (6)
 │       └── 📁 [2005] Afterglow (5)
-├── Artistas                 → ▶ Todas las pistas · álbumes por año original: "Afterglow [2005]"
-├── Artistas (por pista)     → (opcional) todos los que aparecen en una pista, featuring incluidos
-├── Álbumes                  → grupos A–Z cuando la lista es larga
-├── Géneros                  → artistas → álbumes
-├── Décadas                  → álbumes por año
-├── Agregados recientemente  → los 200 álbumes más nuevos
-├── Hi-Res                   → álbumes de más de 16 bits o 48 kHz
-└── Aleatorio                → 100 pistas, se rebaraja cada 10 minutos
+├── Artistas         → ▶ Todas las pistas · álbumes por año original: "Afterglow [2005]"
+├── Álbumes          → la lista completa (o agrupada A–Z, si prefieres)
+├── Géneros          → artistas → álbumes
+├── Compositores     → compositor → álbumes        (también: Directores, Sellos discográficos)
+├── Calidad          → DSD / Hi-Res / CD / comprimido → artistas → álbumes
+├── Agregados recientemente → los 200 álbumes más nuevos (por ENCODINGTIME o la fecha en que llegó el archivo)
+├── Tocadas recientemente → las últimas 100 · Más tocadas → tus 100 favoritas · Modificados recientemente
+├── Hi-Res · Décadas · Aleatorio · Artistas (por pista)
+└── Tus propias vistas → p. ej. Género › Compositor › álbumes, solo vinilos, solo 24 bits…
 ```
 
-- **Carpetas en vivo**: ves lo que hay en el disco ahora. Las carpetas nuevas, movidas o renombradas aparecen al
-  instante, y los reproductores reciben aviso de los cambios.
-- **Vistas por etiquetas** al estilo MinimServer y MusicBee, construidas desde la caché. Usan el artista del álbum,
-  tags multivalor (campos `ARTIST=`/`GENRE=` repetidos, o separados con `;` y `/`), `originaldate`, `albumsort` y la
-  marca de compilación, detectan "Varios artistas" y ordenan de forma natural ignorando acentos y "The". Los álbumes
-  con el mismo título y artista en carpetas distintas (reediciones, discos homónimos) quedan separados, y las
-  subcarpetas `CD1`/`Disc 2` se juntan en un solo álbum. Las compilaciones se ordenan por título (o `albumsort`).
-- **▶ Todas las pistas** en cada nivel que lista contenedores, en orden de navegación y sin duplicados.
-- **Conteos** en el título: canciones (`Korn (15)`), elementos (`Korn (4)` álbumes) o nada. El año después del título
-  del álbum también es opcional, igual que agrupar tus carpetas dentro de una entrada "Carpetas" en la raíz.
+- **Carpetas en vivo**: lo que hay en el disco es lo que ves. Las carpetas nuevas, movidas o renombradas aparecen
+  enseguida, y se avisa a los reproductores.
+- **Vistas por etiquetas** al estilo de MinimServer y MusicBee: artista del álbum, tags con varios valores
+  (`ARTIST=`/`GENRE=` repetidos, o separados con `;` y `/`), `originaldate`, `albumsort`, compilaciones, detección
+  de "Varios artistas" y orden natural sin acentos ni "The". Si existen `ARTISTS` / `ALBUMARTISTS` (Picard) se usan
+  para los índices, y los títulos conservan el crédito completo ("Gorillaz feat. Elton John & 6LACK"); varios
+  valores se muestran como "A, B & C". Los álbumes homónimos en carpetas distintas
+  (reediciones) quedan separados, y las subcarpetas `CD1`/`Disc 2` se unen en un solo álbum.
+- **Vistas personalizadas**, desde el panel (sin editar archivos): elige hasta tres niveles con cualquier tag de tu
+  biblioteca (compositor, director, sello, mood, `SOURCE`, tus propios tags `TXXX`…) o uno calculado (década,
+  calidad, resolución, formato, mes agregado), agrega un filtro opcional ("género contiene jazz", "source es
+  vinyl", "año ≥ 1990") y ve una vista previa con conteos antes de guardar. Al final siempre van álbumes y pistas.
+- **Títulos a tu gusto** con plantillas como `{album} [{año}]`, `{año} - {album}`, `{album} [{año}] {calidad}`
+  (→ `Kind of Blue [1959] 24/96`), `{album} [{años}] • {version}` (→ `A Night at the Opera [1975/2005] • 30th
+  Anniversary`: año original/de edición, uno solo si coinciden) o `{nombre} ({n})`, con formatos listos para
+  elegir. La fecha de la edición también va en `dc:date` para que las apps puedan ordenar por ella. Si un dato no existe,
+  desaparece junto con sus paréntesis. Cualquier tag sirve como campo (`{label}`, `{composer}`…).
+- **▶ Todas las pistas** en cada nivel que lista contenedores, en orden y sin duplicados.
 - **Búsqueda UPnP** por título, artista, álbum y género.
-- **IDs estables**: los favoritos y presets de tu reproductor siguen funcionando tras reiniciar.
+- **IDs estables**: los favoritos y presets de tu reproductor siguen funcionando tras reinicios, actualizaciones y
+  reinstalaciones.
 
 ### Audio y portadas
 
 - Formatos: FLAC, ALAC/AAC/M4A, MP3, OGG Vorbis, Opus, WAV, AIFF, DSF/DFF, WavPack, APE.
-- Envía el **archivo original** con peticiones por rangos (para adelantar) y los encabezados DLNA correctos.
-- Los metadatos de cada pista incluyen duración, frecuencia, bits, canales y bitrate, así el reproductor puede mostrar "FLAC 24/96".
-- Las portadas salen de `cover.jpg` / `folder.jpg` / `front.jpg`… o de la imagen incrustada. Se redimensionan a JPEG
-  (600 px por defecto, perfil DLNA `JPEG_SM`), y las miniaturas 16:9 se recortan a cuadrado. Cada álbum comparte una
-  sola portada, así el reproductor la descarga una vez.
+- Envía el **archivo original**, byte por byte, con peticiones por rangos (adelantar) y cabeceras DLNA correctas.
+- Los metadatos incluyen duración, frecuencia, bits, canales y bitrate, para que el reproductor muestre "FLAC 24/96".
+- Las portadas se reducen a JPEG (600 px por defecto, perfil DLNA `JPEG_SM`) y las miniaturas 16:9 se recortan a
+  cuadrado. El servidor usa la primera imagen que encuentra, en este orden:
+
+  | | 1.ª | 2.ª | 3.ª | 4.ª |
+  |---|---|---|---|---|
+  | **Pista** | su portada embebida frontal | `<subtítulo del disco>.jpg` | otra embebida (etiqueta del CD…) | la imagen de su carpeta |
+  | **Álbum / carpeta** | `cover` / `folder` / `front` .jpg/.png | otra imagen de la carpeta | la portada embebida de sus pistas | contraportada, CD, booklet… y luego (opcional) la de una subcarpeta |
+  | **Artista** | `artist.jpg` | `folder.jpg` de una carpeta con el nombre del artista | foto de artista embebida | la portada de su primer álbum |
+
+  Los tipos de imagen embebida siguen la especificación FLAC/ID3 (frontal, disco, artista…). Los íconos de 32 px
+  nunca se usan.
+- Las portadas se guardan **por contenido**: doce pistas con la misma imagen embebida ocupan un solo archivo, y el
+  reproductor la descarga una vez.
+- En carpetas de pistas sueltas (playlists, descargas) cada pista muestra su propia portada, nunca la de otra.
 
 ### Rápido sin indexar
 
 - Los tags se guardan en una caché SQLite y se validan con el tamaño y la fecha de modificación.
 - Un lector rápido de FLAC lee solo los bloques de cabecera: unos KB por archivo, no la imagen incrustada completa.
-- Al abrir una carpeta, los tags se leen en paralelo. Lo que tarde más de 1.5 s aproximadamente se muestra con
+- Al abrir una carpeta, los tags se leen en paralelo. Lo que tarde más de 1 s aproximadamente se muestra con
   nombres sacados de la ruta (`Artista/[Año] Álbum/NN. Título`) y se termina en segundo plano.
 - **Precarga en reposo**: tras 5 minutos sin navegación, recorre la biblioteca y guarda en caché tags y portadas.
   Se pausa en cuanto alguien navega o reproduce, y limpia las entradas de archivos borrados.
 - La caché sobrevive a **mover o renombrar carpetas**: los archivos se reconocen por nombre, tamaño y fecha.
 - La caché puede vivir en otro disco, por ejemplo un SSD (`Ajustes → Carpeta de caché`).
+- **Primero lo que navegas**: el índice de tags se reconstruye solo cuando nadie está navegando, y si empiezas a
+  navegar a mitad de una reconstrucción, esta se hace a un lado: abrir una carpeta sigue siendo instantáneo.
+- Probado con una biblioteca de 48,000 pistas: el índice de tags se arma en unos 2 segundos y las vistas
+  personalizadas responden en milisegundos una vez abiertas.
 
 ### Panel de control y dashboard
 
 | Panel de control (`:8200`) | Dashboard (`:8202`) |
 |---|---|
-| ![Ajustes](docs/img/panel-settings-es.png) | ![Dashboard](docs/img/dashboard-es-light.png) |
+| ![Editor de vistas](docs/img/panel-browsing-es-editor.png) | ![Dashboard](docs/img/dashboard-es-light.png) |
 
-- **Panel de control**: estado, dispositivos conectados, progreso de la precarga, selector de carpetas, todos los
-  ajustes, herramientas de caché y el log.
+- **Panel de control**: estado, dispositivos conectados, progreso de la precarga, selector de carpetas, la página
+  **Navegación** (vistas, formato de títulos, portadas y el editor de vistas; [captura completa](docs/img/panel-browsing-es.png)),
+  todos los ajustes, herramientas de caché y el log. Cada opción trae una explicación corta.
 - **Dashboard**: qué está sonando ahora en cada reproductor (formato, posición, volumen), el historial de escucha
   (pistas escuchadas más de 10 s), la actividad en vivo, las transferencias del servidor y estadísticas de 14 y 30 días.
   Corre como un proceso aparte, así que puedes reiniciarlo sin tocar el servidor.
@@ -197,7 +231,7 @@ flowchart LR
 
 ## Configuración
 
-Todo se edita desde el panel de control (**Ajustes**). Se guarda en `config.json`:
+Todo se edita desde el panel de control (**Navegación** y **Ajustes**). Se guarda en `config.json`:
 
 | Dónde | Cuándo |
 |---|---|
@@ -216,7 +250,12 @@ La tabla con todas las claves está en el [README en inglés](README.md#configur
 | `musica.carpetas` | `[]` | Tus carpetas de música |
 | `cache.directorio` | vacío | Carpeta de caché (vacío = `datos\` en la carpeta de datos) |
 | `precarga.inactividad_min` | `5` | Minutos sin navegación antes de precargar |
-| `vistas.activas` | todas | `artistas`, `albumes`, `generos`, `decadas`, `recientes`, `hires`, `aleatorio` |
+| `vistas.activas` | ver panel | Vistas en la raíz, en orden (incluye `compositores`, `directores`, `sellos`, `calidad`, `tocadas`, `mas_tocadas` y tus vistas) |
+| `vistas.plantillas` | ver panel | Cómo se ven los títulos: `raiz`, `contenedor` (artistas, géneros, carpetas…) y `album` |
+| `vistas.personalizadas` | `[]` | Tus vistas (más fácil desde **Navegación** en el panel) |
+| `portadas.por_pista` | `true` | Cada pista muestra su propia portada embebida |
+| `portadas.subcarpetas` | `true` | Una carpeta sin imagen usa la primera de sus subcarpetas |
+| `portadas.artista` | `true` | Imagen de artista (`artist.jpg`, foto embebida) en Artistas, Compositores… |
 
 **Puertos:** TCP 8200 (servidor y panel), TCP 8202 (dashboard), UDP 1900 (descubrimiento SSDP).
 
@@ -253,6 +292,32 @@ conserva la fecha, usa **Ajustes → Borrar caché**.
 Las carpetas siempre se navegan en vivo. Las vistas por etiquetas incluyen lo que ya está en caché: lo que hayas
 navegado, más todo lo demás tras una pasada de precarga. Da clic en **Estado → Precarga en reposo → Iniciar ahora**
 para actualizarlas al momento.
+</details>
+
+<details>
+<summary><b>Una vista por tag (Compositores, Sellos…) sale vacía</b></summary>
+
+Esas vistas usan tags que muchos archivos no tienen. En **Navegación → Vistas en la raíz** se ve cuántas pistas
+tienen cada tag. Las vistas muestran lo que ya se leyó, así que una biblioteca nueva se va llenando conforme avanza
+la lectura en segundo plano.
+</details>
+
+<details>
+<summary><b>"Agregados recientemente" muestra álbumes viejos</b></summary>
+
+La fecha sale de `ENCODINGTIME` (`TDEN`) si el archivo lo tiene. Si no, es la fecha en que el archivo llegó a tu
+disco (la fecha de creación en Windows), así que editar tags no mueve los álbumes al principio. Copiar los archivos
+a otro disco les pone una fecha de creación nueva.
+</details>
+
+<details>
+<summary><b>¿Las URLs de las pistas son siempre las mismas?</b></summary>
+
+Sí. Una URL como `http://192.168.1.20:8200/m/6ec744fc/Adele/21/01.flac` es un hash corto del **nombre** de la
+carpeta de música (`Música`, no la ruta completa) más la ruta del archivo dentro de ella. No cambia con reinicios,
+actualizaciones, reinstalaciones, otra letra de unidad ni si mueves la biblioteca de lugar. Los IDs de contenedores
+funcionan igual: artistas, álbumes y géneros son hashes de sus nombres, así que los favoritos del reproductor
+siguen sirviendo. Si dos carpetas de música se llaman igual, la segunda recibe su propio id.
 </details>
 
 <details>
@@ -300,9 +365,13 @@ El workflow [Build Windows release](.github/workflows/release.yml) compila el in
 
 ## Contribuir
 
-Los issues y pull requests son bienvenidos. Incluye tu sistema operativo, tu reproductor o app (WiiM Home, BubbleUPnP…)
-y las líneas relevantes del log. El código está comentado en español. Lee [`AGENTS.md`](AGENTS.md) para un recorrido
-por la arquitectura.
+Hecho por **Vic** (`damekko` en el [foro de WiiM](https://forum.wiimhome.com/)), un ingeniero de sistemas que va
+entrando al hi-fi. Ideas, reportes y preguntas son bienvenidos: abre un [issue](../../issues) o una
+[discusión](../../discussions), o escribe en el hilo del foro de WiiM. Incluye tu sistema operativo, tu reproductor o
+app (WiiM Home, BubbleUPnP…) y las líneas relevantes del log.
+
+Los pull requests también son bienvenidos. El código está comentado en español. Lee [`AGENTS.md`](AGENTS.md) para un
+recorrido por la arquitectura y [`CHANGELOG.md`](CHANGELOG.md) para ver qué cambió y quién ayudó.
 
 ## Licencia
 

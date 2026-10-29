@@ -57,7 +57,7 @@ RUTA_EVENTOS = DIR_DATOS / "eventos.jsonl"
 RUTA_HIST = DIR_DATOS / "historial.jsonl"
 RUTA_LOG = DIR_DATOS / "dashboard.log"
 ES_WINDOWS = os.name == "nt"
-VERSION = "1.1.0"
+VERSION = "1.3.0"
 log = logging.getLogger("dashboard")
 
 NS_AVT = "urn:schemas-upnp-org:service:AVTransport:1"
