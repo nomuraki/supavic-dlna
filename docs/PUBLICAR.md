@@ -71,8 +71,9 @@ si uno falla, el otro sale igual. Construye la imagen para PC/NAS (`amd64`) y Ra
 arranca para comprobar que responde y la publica como `ghcr.io/nomuraki/supavic-dlna` con las etiquetas `x.y.z`,
 `x.y` y `latest`. Tarda unos 5–10 minutos (la parte de ARM se compila emulada).
 
-**Solo la primera vez:** GitHub crea la imagen como privada. En tu perfil → **Packages** → `supavic-dlna` →
-**Package settings** → *Danger Zone* → **Change visibility** → **Public**. Sin esto, nadie más puede descargarla.
+La imagen toma la visibilidad del repositorio (público), así que no hay que hacer nada. Para comprobarlo:
+https://github.com/users/nomuraki/packages/container/supavic-dlna/settings → *Danger Zone* debe decir
+"This package is currently public".
 
 Para probarla sin publicar: Actions → *Docker image* → **Run workflow** (solo construye y prueba).
 
