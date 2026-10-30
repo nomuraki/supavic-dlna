@@ -22,6 +22,7 @@
   <img alt="Licencia: MIT" src="https://img.shields.io/badge/licencia-MIT-c2410c">
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-1d1c1a">
   <img alt="Linux desde el código" src="https://img.shields.io/badge/Linux-desde%20el%20c%C3%B3digo-1d1c1a">
+  <img alt="Docker amd64 / arm64" src="https://img.shields.io/badge/Docker-amd64%20%7C%20arm64-1d1c1a">
   <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-1d1c1a">
 </p>
 
@@ -100,10 +101,14 @@ probado, y fuera de Windows no hay icono de bandeja.
 ### Docker (NAS, servidor casero, Raspberry Pi)
 
 ```bash
-git clone <URL de este repositorio> && cd supavic-dlna
+mkdir supavic-dlna && cd supavic-dlna
+curl -O https://raw.githubusercontent.com/nomuraki/supavic-dlna/main/docker-compose.yml
 # edita docker-compose.yml: cambia /path/to/your/music
 docker compose up -d
 ```
+
+Esto descarga la imagen ya hecha `ghcr.io/nomuraki/supavic-dlna` (PC/NAS `amd64` y Raspberry Pi / ARM de 64 bits
+`arm64`), que se publica con cada versión. Etiquetas: `latest`, cada versión (p. ej. `1.4.1`) y cada serie (p. ej. `1.4`).
 
 Luego abre `http://<ip-del-servidor>:8200/`. Para tener en cuenta:
 
@@ -114,7 +119,8 @@ Luego abre `http://<ip-del-servidor>:8200/`. Para tener en cuenta:
 - `SUPAVIC_NOMBRE`, `SUPAVIC_MUSICA` (por defecto `/music`), `SUPAVIC_IDIOMA` y `SUPAVIC_PUERTO` fijan los valores
   iniciales en el primer arranque; después se cambian en el panel.
 - Deja fijo el `hostname` (viene en el compose): los reproductores identifican al servidor por él.
-- Actualizar: `git pull && docker compose up -d --build`.
+- Actualizar: `docker compose pull && docker compose up -d`. Para construirla tú, clona el repositorio y usa
+  `build: .` en el compose (`docker compose up -d --build`). Raspberry Pi OS de 32 bits no está soportado.
 
 Gracias a **@apwiggins** por el primer setup de Docker (#1).
 

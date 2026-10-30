@@ -49,7 +49,7 @@ try:
 except ImportError:          # funciona sin Pillow, pero manda las portadas sin redimensionar
     Image = None
 
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 APP = "SupaVic DLNA"
 
 

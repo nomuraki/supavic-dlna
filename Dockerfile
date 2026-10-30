@@ -1,4 +1,5 @@
 # SupaVic DLNA: music-only DLNA/UPnP server.
+# Ready-made image (amd64 + arm64): ghcr.io/nomuraki/supavic-dlna, published by .github/workflows/docker.yml
 # Build:  docker build -t supavic-dlna .
 # Run:    docker compose up -d   (see docker-compose.yml; host networking is required for DLNA discovery)
 # Based on the Docker setup contributed by @apwiggins (#1).

@@ -25,7 +25,7 @@ configuración, tus rutas de música y tu caché nunca se suben.
 - *Description*: `Tiny, fast music-only DLNA/UPnP server for WiiM and any UPnP player. Live folders + artist/album/genre views, no indexing wait, no transcoding.`
 - *Website*: déjalo vacío o pon el enlace a Releases.
 - *Topics*: `dlna` `upnp` `media-server` `music-server` `wiim` `flac` `hi-res-audio` `bubbleupnp` `windows` `python`
-- Marca **Releases** y desmarca *Packages* y *Deployments* si no los usas.
+- Marca **Releases** y **Packages** (ahí aparece la imagen de Docker); desmarca *Deployments*.
 
 **Social preview** (Settings → General → Social preview → Edit): sube `docs/img/social-preview.png` (1280×640).
 Es la imagen que aparece al compartir el enlace en WhatsApp, X, Reddit, etc.
@@ -57,13 +57,26 @@ El enlace **Download for Windows** del README apunta a `releases/latest`, así q
 
 ## 4. Siguientes versiones
 
-1. Cambia `VERSION = "x.y.z"` en `main.py`.
+1. Cambia `VERSION = "x.y.z"` en `main.py` y en `dashboard.py`.
 2. Agrega la sección nueva en `CHANGELOG.md` y, si quieres, ajusta `docs/release-notes.md`.
 3. `git commit`, luego `git tag vx.y.z` y `git push origin main vx.y.z`.
 
-Si la etiqueta no coincide con `VERSION`, el workflow se detiene con un error, a propósito.
+Si la etiqueta no coincide con `VERSION`, el workflow se detiene con un error, a propósito. El texto del Release se
+arma solo: la sección de esa versión del `CHANGELOG.md` + `docs/release-notes.md`.
 
-## 5. Firma de código (opcional, más adelante)
+## 5. Imagen de Docker
+
+Con el mismo tag corre otro workflow, *Docker image* (`.github/workflows/docker.yml`), independiente del de Windows:
+si uno falla, el otro sale igual. Construye la imagen para PC/NAS (`amd64`) y Raspberry Pi de 64 bits (`arm64`), la
+arranca para comprobar que responde y la publica como `ghcr.io/nomuraki/supavic-dlna` con las etiquetas `x.y.z`,
+`x.y` y `latest`. Tarda unos 5–10 minutos (la parte de ARM se compila emulada).
+
+**Solo la primera vez:** GitHub crea la imagen como privada. En tu perfil → **Packages** → `supavic-dlna` →
+**Package settings** → *Danger Zone* → **Change visibility** → **Public**. Sin esto, nadie más puede descargarla.
+
+Para probarla sin publicar: Actions → *Docker image* → **Run workflow** (solo construye y prueba).
+
+## 6. Firma de código (opcional, más adelante)
 
 Sin firma, Windows SmartScreen muestra "Windows protegió su PC" hasta que el ejecutable gana reputación. Para
 quitarlo hace falta un certificado de firma de código. Para proyectos open source existe

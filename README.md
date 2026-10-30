@@ -22,6 +22,7 @@
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-c2410c">
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-1d1c1a">
   <img alt="Linux from source" src="https://img.shields.io/badge/Linux-from%20source-1d1c1a">
+  <img alt="Docker amd64 / arm64" src="https://img.shields.io/badge/Docker-amd64%20%7C%20arm64-1d1c1a">
   <img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-1d1c1a">
 </p>
 
@@ -100,10 +101,14 @@ and there's no tray icon outside Windows.
 ### Docker (NAS, home server, Raspberry Pi)
 
 ```bash
-git clone <this repository URL> && cd supavic-dlna
+mkdir supavic-dlna && cd supavic-dlna
+curl -O https://raw.githubusercontent.com/nomuraki/supavic-dlna/main/docker-compose.yml
 # edit docker-compose.yml: change /path/to/your/music
 docker compose up -d
 ```
+
+This downloads the ready-made image `ghcr.io/nomuraki/supavic-dlna` (PC/NAS `amd64` and 64-bit Raspberry Pi /
+ARM `arm64`), published with every release. Tags: `latest`, each version (e.g. `1.4.1`) and each series (e.g. `1.4`).
 
 Then open `http://<server-ip>:8200/`. Good to know:
 
@@ -114,7 +119,8 @@ Then open `http://<server-ip>:8200/`. Good to know:
 - `SUPAVIC_NOMBRE`, `SUPAVIC_MUSICA` (default `/music`), `SUPAVIC_IDIOMA` and `SUPAVIC_PUERTO` set the initial
   values on the first start; after that, use the control panel.
 - Keep `hostname` fixed (it's in the compose file): players identify the server by it.
-- Update: `git pull && docker compose up -d --build`.
+- Update: `docker compose pull && docker compose up -d`. To build it yourself instead, clone the repository and
+  use `build: .` in the compose file (`docker compose up -d --build`). 32-bit Raspberry Pi OS isn't supported.
 
 Thanks to **@apwiggins** for the first Docker setup (#1).
 

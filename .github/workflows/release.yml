@@ -67,7 +67,15 @@ jobs:
 
       - name: Release notes
         shell: pwsh
-        run: (Get-Content docs/release-notes.md -Raw) -replace '\{VERSION\}', $env:VERSION | Set-Content -Encoding utf8 dist/release-notes.md
+        run: |
+          # Description = this version's section of CHANGELOG.md + the downloads table (docs/release-notes.md)
+          $v = $env:VERSION
+          $cl = Get-Content CHANGELOG.md -Raw -Encoding utf8
+          $m = [regex]::Match($cl, "(?ms)^## \[$([regex]::Escape($v))\][^\r\n]*\r?\n(.*?)(?=^## \[|\z)")
+          $novedades = if ($m.Success) { $m.Groups[1].Value.Trim() } else { "See CHANGELOG.md." }
+          $descargas = (Get-Content docs/release-notes.md -Raw -Encoding utf8) -replace '\{VERSION\}', $v
+          "$novedades`n`n---`n`n$descargas" | Set-Content -Encoding utf8 dist/release-notes.md
+          Get-Content dist/release-notes.md
 
       - uses: actions/upload-artifact@v4
         with:

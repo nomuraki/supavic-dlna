@@ -6,9 +6,12 @@
 | `SupaVicDLNA-{VERSION}-portable-win64.zip` | Portable version: unzip anywhere and run `SupaVicDLNA.exe` |
 | `SHA256SUMS.txt` | Checksums for the files above |
 
+**Linux / NAS / Raspberry Pi (64-bit):** Docker image `ghcr.io/nomuraki/supavic-dlna:{VERSION}` (also `:latest`).
+Get [`docker-compose.yml`](https://github.com/nomuraki/supavic-dlna/blob/main/docker-compose.yml), set your music path and run `docker compose up -d`.
+
 After installing, the control panel opens in your browser: add your music folder under **Folders**, and the server
 appears on your player (WiiM Home, BubbleUPnP…) as **SupaVic (*your PC's name*)**.
 
 > The executable isn't code-signed yet. If Windows SmartScreen warns you, choose **More info → Run anyway**.
 
-What's new in this version: see `CHANGELOG.md` in the repository.
+Full history: [CHANGELOG.md](https://github.com/nomuraki/supavic-dlna/blob/main/CHANGELOG.md)

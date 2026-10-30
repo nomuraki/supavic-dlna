@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.4.1] - 2026-10-30
+
+### Added
+- **Ready-made Docker image** on GitHub's registry, `ghcr.io/nomuraki/supavic-dlna`, for PC/NAS (`amd64`) and 64-bit
+  Raspberry Pi / ARM boards (`arm64`). It's built and published automatically with every release, tagged `latest`,
+  with the version (`1.4.1`) and with the series (`1.4`). You no longer need to download the code or build anything:
+  get `docker-compose.yml`, set your music path and run `docker compose up -d`. Update with
+  `docker compose pull && docker compose up -d`. Suggested by **apwiggins** (#1).
+- Before publishing, the image is started and checked to answer, so a broken build never reaches `latest`.
+
 ## [1.4.0] - 2026-10-29
 
 ### Added

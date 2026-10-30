@@ -72,7 +72,10 @@ Ahí van `config.json` y `datos/` (log, pid, eventos, historial y, si `cache.dir
 - Reconstrucción incremental: `Indice._parseados` (tags ya procesados por ruta + mtime/tamaño + firma de claves extra) y
   `Indice._dirs` (listado por carpeta + mtime de la carpeta). `_norm`, `_orden`, `_hid`, `_letra`, `natkey` con `lru_cache`.
 - Docker: `Dockerfile` + `docker-compose.yml` (red del host, `SUPAVIC_HOME=/data`, variables `SUPAVIC_*` solo en el
-  primer arranque, ver `cargar_config`). Nombres visibles traducidos (`VISTAS` se rellena en `aplicar_idioma`).
+  primer arranque, ver `cargar_config`). `.github/workflows/docker.yml` publica la imagen en
+  `ghcr.io/nomuraki/supavic-dlna` (amd64 + arm64, tags `X.Y.Z`, `X.Y`, `latest`) con cada tag `v*`, después de
+  arrancarla y comprobar `/api/estado`; es independiente de `release.yml` (Windows).
+  Nombres visibles traducidos (`VISTAS` se rellena en `aplicar_idioma`).
 - `Precargador`: en reposo (`precarga.inactividad_min` sin Browse/portadas ni transferencias) recorre todo; cualquier
   actividad la pausa.
 - `esc()` / DIDL: `upnp:albumArtURI` con `dlna:profileID="JPEG_SM"` si la portada ≤ 640 px.
