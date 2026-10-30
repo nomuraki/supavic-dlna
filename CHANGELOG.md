@@ -2,7 +2,34 @@
 
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/).
 
-## [1.3.1] - unreleased
+## [1.4.0] - 2026-10-29
+
+### Added
+- **Docker support**: `Dockerfile` and `docker-compose.yml` for Linux hosts (NAS, home server, Raspberry Pi). Host
+  networking for DLNA discovery, settings and cache on a `/data` volume, music mounted read-only, UTF-8 locale,
+  health check, and first-start settings from environment variables (`SUPAVIC_NOMBRE`, `SUPAVIC_MUSICA`,
+  `SUPAVIC_IDIOMA`, `SUPAVIC_PUERTO`). Based on the setup contributed by **apwiggins** (#1).
+
+### Changed
+- **Much faster paging.** Players ask for long lists in pages of 50–100 items, and every page used to rebuild the
+  whole list. Lists are now kept between pages: with 2,000 folders at the root a page went from ~65 ms to ~5 ms,
+  and 4,000 albums from ~30 ms to ~2 ms per page. Folders still reflect the disk within seconds, and views refresh
+  as soon as the tag index or the settings change.
+- **Faster tag index rebuilds** (~1.8–2.9 s → ~1.2–1.6 s for 48,000 tracks): tags parsed in the previous build are
+  reused when the file didn't change, folders that didn't change aren't listed again, and repeated text work
+  (sorting keys, normalized names, ids) is cached. Fewer disk reads helps a lot on hard drives.
+- Looking up cached tags for a folder takes one database query per 800 files instead of one per file.
+- Opening a view from the root is instant: its list is already prepared when the root is shown.
+- **Much less disk reading while idle.** The background reading used to extract the embedded picture of every
+  single track (tens of GB on a large FLAC library). Now it prepares one cover per album folder, and a track's own
+  cover is extracted only when a player asks for it; since it's almost always the same picture, the existing file is
+  reused. Loose-track folders still get one per track.
+- Cover cache cleanup is exact: it drops covers whose source file no longer exists, and keeps the ones created on
+  demand (before, those could be deleted and regenerated on every pass).
+- **Restarting from the panel on Linux/macOS/Docker** (after changing the name, port, language…) replaces the process
+  in place. In Docker, the container used to stop and depend on the restart policy to come back.
+
+## [1.3.1] - 2026-10-29
 
 ### Fixed
 - **Linux / macOS / Docker:** folders and files whose names contain `:` or `\` (e.g. "Hi-Res Masters: '80s Rock")

@@ -97,6 +97,27 @@ Abre `http://<este-equipo>:8200/` para agregar tus carpetas. Hay una unidad de s
 [`contrib/supavic-dlna.service`](contrib/supavic-dlna.service). El servidor funciona bien en Linux. En macOS no se ha
 probado, y fuera de Windows no hay icono de bandeja.
 
+### Docker (NAS, servidor casero, Raspberry Pi)
+
+```bash
+git clone <URL de este repositorio> && cd supavic-dlna
+# edita docker-compose.yml: cambia /path/to/your/music
+docker compose up -d
+```
+
+Luego abre `http://<ip-del-servidor>:8200/`. Para tener en cuenta:
+
+- **Se necesita la red del host** (`network_mode: host`, ya viene así): el descubrimiento DLNA usa multicast, que no
+  cruza la red puente de Docker. Funciona en Linux; Docker Desktop en Windows/macOS no lo soporta bien.
+- Ajustes, logs, caché de tags y portadas viven en `./data` (montado en `/data`): reconstruir o actualizar el
+  contenedor no borra nada. Tu música se monta de solo lectura en `/music`; el servidor nunca escribe ahí.
+- `SUPAVIC_NOMBRE`, `SUPAVIC_MUSICA` (por defecto `/music`), `SUPAVIC_IDIOMA` y `SUPAVIC_PUERTO` fijan los valores
+  iniciales en el primer arranque; después se cambian en el panel.
+- Deja fijo el `hostname` (viene en el compose): los reproductores identifican al servidor por él.
+- Actualizar: `git pull && docker compose up -d --build`.
+
+Gracias a **@apwiggins** por el primer setup de Docker (#1).
+
 ## Funciones
 
 ### Lo que ves en tu reproductor

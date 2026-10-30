@@ -1,0 +1,20 @@
+# SupaVic DLNA with Docker Compose (Linux hosts: NAS, home server, Raspberry Pi…)
+#   1. Change the music path below.
+#   2. docker compose up -d
+#   3. Open http://<your-server-ip>:8200 to check status and adjust settings.
+services:
+  supavic-dlna:
+    build: .
+    image: supavic-dlna
+    container_name: supavic-dlna
+    hostname: supavic-dlna          # keep it fixed: players identify the server by it
+    network_mode: host              # required: DLNA discovery (SSDP multicast) doesn't cross Docker's bridge
+    restart: unless-stopped
+    environment:
+      - TZ=UTC                      # your time zone, e.g. America/Mexico_City (dates in the panel and logs)
+      - SUPAVIC_NOMBRE=SupaVic (NAS)  # name shown on your players (first start only; change it later in the panel)
+      # - SUPAVIC_IDIOMA=en         # en | es | auto
+    volumes:
+      - ./data:/data                # settings, logs, tag cache and covers
+      - /path/to/your/music:/music:ro
+      # More folders: mount them under /music, e.g.  - /mnt/hd2/classical:/music/Classical:ro

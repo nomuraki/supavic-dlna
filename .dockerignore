@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+__pycache__
+*.pyc
+datos
+data
+config.json
+dist
+build
+docs
+assets
+contrib
+*.bat
+*.md
+!README.md

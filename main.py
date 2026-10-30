@@ -31,6 +31,7 @@ import threading
 import time
 import uuid
 from collections import Counter, OrderedDict, defaultdict
+from functools import lru_cache
 from email.utils import formatdate
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -48,7 +49,7 @@ try:
 except ImportError:          # funciona sin Pillow, pero manda las portadas sin redimensionar
     Image = None
 
-VERSION = "1.3.1"
+VERSION = "1.4.0"
 APP = "SupaVic DLNA"
 
 
@@ -160,8 +161,9 @@ def protocol_info(mime):
     return f"http-get:*:{mime}:{pn}{DLNA_FLAGS}"
 
 
+@lru_cache(maxsize=1 << 16)
 def natkey(s):
-    return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", s.casefold())]
+    return tuple(int(p) if p.isdigit() else p for p in re.split(r"(\d+)", s.casefold()))
 
 
 def _int(s):
@@ -188,6 +190,18 @@ def cargar_config():
             actual = json.loads(RUTA_CONFIG.read_text(encoding="utf-8-sig"))
         except ValueError as e:
             log.error("Invalid config.json (%s); using defaults", e)
+    if not RUTA_CONFIG.exists():
+        # Primera vez (Docker, servicio): valores iniciales desde el entorno. Después se cambian en el panel.
+        env = os.environ
+        if env.get("SUPAVIC_MUSICA"):
+            actual.setdefault("musica", {})["carpetas"] = [c.strip() for c in re.split(r"[;,]", env["SUPAVIC_MUSICA"])
+                                                           if c.strip()]
+        if env.get("SUPAVIC_NOMBRE"):
+            actual.setdefault("servidor", {})["nombre"] = env["SUPAVIC_NOMBRE"].strip()[:64]
+        if env.get("SUPAVIC_IDIOMA"):
+            actual.setdefault("servidor", {})["idioma"] = env["SUPAVIC_IDIOMA"].strip().lower()
+        if env.get("SUPAVIC_PUERTO", "").isdigit():
+            actual.setdefault("servidor", {})["puerto"] = int(env["SUPAVIC_PUERTO"])
     cfg = _merge(CONFIG_DEFECTO, actual)
     aplicar_idioma(cfg)
     if not str(cfg["servidor"]["nombre"]).strip():
@@ -960,8 +974,15 @@ class CacheTags:
         mismo nombre de archivo + tamaño + mtime al nanosegundo. Lo encontrado así se re-registra en la ruta nueva."""
         res, faltan, reubicar = {}, [], []
         with self.lock:
+            filas = {}
+            todas = [a[0] for a in archivos]
+            for k in range(0, len(todas), 800):          # por lotes: una consulta por cada 800 archivos, no una por archivo
+                parte = todas[k:k + 800]
+                for r, mt0, tam0, js in self.db.execute(
+                        f"SELECT ruta, mtime, tam, meta FROM pistas WHERE ruta IN ({','.join('?' * len(parte))})", parte):
+                    filas[r] = (mt0, tam0, js)
             for ruta, mt, tam in archivos:
-                row = self.db.execute("SELECT mtime, tam, meta FROM pistas WHERE ruta=?", (ruta,)).fetchone()
+                row = filas.get(ruta)
                 if row and row[0] == mt and row[1] == tam:
                     res[ruta] = json.loads(row[2])
                     continue
@@ -1240,7 +1261,32 @@ class Biblioteca:
         return len(l[0]) + len(l[1]) if l else 0
 
     # ---- navegación
+    # ---- caché de listas para la paginación: el WiiM pide una lista larga en páginas de 50–100, y cada página
+    #      volvía a calcular la lista completa. Carpetas: 4 s (siguen siendo "en vivo"); vistas: hasta que cambie
+    #      el índice o los ajustes. Vistas que cambian solas (tocadas, aleatorio): 4 s.
+    TTL_HIJOS_CARPETA, TTL_HIJOS_VISTA = 4.0, 300.0
+    VOLATILES = ("v:tocadas", "v:mas_tocadas", "v:aleatorio", "v:indexando")
+
     def hijos(self, oid):
+        if not hasattr(self, "_hijos_cache"):
+            self._hijos_cache = OrderedDict()
+        gen = (id(self.app.indice.d), getattr(self.app, "cfg_gen", 0), self.app.update_id)
+        ahora = time.monotonic()
+        vista = oid.startswith("v:") and not oid.startswith(self.VOLATILES) and not oid.startswith("v:carpeta")
+        ttl = self.TTL_HIJOS_VISTA if vista else self.TTL_HIJOS_CARPETA
+        c = self._hijos_cache.get(oid)
+        if c and c[1] == gen and ahora - c[0] < ttl:
+            return c[2]
+        res = self._hijos_calc(oid)
+        if res is not None and not (oid.startswith("v:") and self.app.indice.d is None):
+            with self.dir_lock:
+                self._hijos_cache[oid] = (ahora, gen, res)
+                self._hijos_cache.move_to_end(oid)
+                while len(self._hijos_cache) > 128:
+                    self._hijos_cache.popitem(last=False)
+        return res
+
+    def _hijos_calc(self, oid):
         """Lista de descriptores ('raiz', key) | ('d', key, rel) | ('t', key, rel, mtime, tam) o None si no existe."""
         if oid == "0":
             base = self.hijos_raiz()
@@ -1649,10 +1695,12 @@ ARTICULOS = ("the ",)          # como MusicBee/MinimServer: "The Cure" en la C; 
 C_ALBUM, C_ARTISTA, C_GENERO = "object.container.album.musicAlbum", "object.container.person.musicArtist", "object.container.genre.musicGenre"
 
 
+@lru_cache(maxsize=1 << 17)       # textos que se repiten en miles de pistas: se calculan una vez
 def _norm(s):
     return " ".join((s or "").split()).casefold()
 
 
+@lru_cache(maxsize=1 << 17)       # textos que se repiten en miles de pistas: se calculan una vez
 def _sin_articulo(s):
     n = _norm(s)
     for a in ARTICULOS:
@@ -1661,6 +1709,7 @@ def _sin_articulo(s):
     return n
 
 
+@lru_cache(maxsize=1 << 17)       # textos que se repiten en miles de pistas: se calculan una vez
 def _orden(s):
     """Orden natural, sin artículo y sin acentos (Ángela junto a Andrés, no después de la Z)."""
     import unicodedata
@@ -1668,6 +1717,7 @@ def _orden(s):
     return natkey("".join(c for c in n if not unicodedata.combining(c)))
 
 
+@lru_cache(maxsize=1 << 17)       # textos que se repiten en miles de pistas: se calculan una vez
 def _letra(s):
     import unicodedata
     n = _sin_articulo(s)
@@ -1675,6 +1725,7 @@ def _letra(s):
     return c if c.isalpha() and c.isascii() else ("0-9" if c.isdigit() else "#")
 
 
+@lru_cache(maxsize=1 << 17)       # textos que se repiten en miles de pistas: se calculan una vez
 def _hid(*partes):
     return hashlib.sha1("|".join(_norm(p) for p in partes).encode("utf-8")).hexdigest()[:10]
 
@@ -1765,14 +1816,14 @@ class Indice:
         t0 = time.time()
         try:
             v = self.app.tags.version
-            with self.app.tags.lock:
-                filas = self.app.tags.db.execute("SELECT ruta, mtime, tam, meta FROM pistas").fetchall()
+            with self.app.tags.lock:                    # sin la columna meta: solo se lee la de lo que cambió
+                filas = self.app.tags.db.execute("SELECT ruta, mtime, tam FROM pistas").fetchall()
             raices = []
             for key, (r, _) in self.app.bib.raices.items():
                 pref = os.path.normcase(r if r.endswith(os.sep) else r + os.sep)
                 raices.append((key, pref, len(pref)))
-            # Verificar que los archivos sigan ahí con UN listado por carpeta (no un stat por archivo):
-            # ~11x menos llamadas al disco. Los valores de scandir son los mismos que guardó listar().
+            # Verificar que los archivos sigan ahí: UN listado por carpeta (no un stat por archivo), y si la
+            # carpeta no cambió desde la construcción anterior (misma fecha y mismos archivos), ni eso: un stat.
             por_dir = defaultdict(list)
             for j, fila in enumerate(filas):
                 self._ceder(j)
@@ -1781,27 +1832,41 @@ class Indice:
                     por_dir[os.path.dirname(fila[0])].append((fila, kr))
             vigentes = []
             nacido = {}                                 # ruta -> fecha de creación (Windows: cuando llegó al disco)
+            dirs_prev, dirs_nuevo = getattr(self, "_dirs", {}), {}
             for j, (carpeta_abs, items) in enumerate(por_dir.items()):
                 self._ceder(j * 16)
                 nombres = {os.path.basename(f[0]): (f[1], f[2]) for f, _ in items}
-                vivos = set()
                 try:
-                    with os.scandir(carpeta_abs) as it:
-                        for e in it:
-                            esperado = nombres.get(e.name)
-                            if esperado:
-                                try:
-                                    st = e.stat()
-                                except OSError:
-                                    continue
-                                if (st.st_mtime_ns, st.st_size) == esperado:
-                                    vivos.add(e.name)
-                                    b = getattr(st, "st_birthtime", 0) or (st.st_ctime if ES_WINDOWS else 0)
-                                    if b:
-                                        nacido[e.path] = int(b)
+                    dmt = os.stat(carpeta_abs).st_mtime_ns
                 except OSError:
                     continue                            # carpeta movida/borrada: nada de ella sigue vigente
-                vigentes += [(f, kr) for f, kr in items if os.path.basename(f[0]) in vivos]
+                c = dirs_prev.get(carpeta_abs)
+                ent = c[1] if c and c[0] == dmt else None
+                if ent is not None and any(ent.get(n, (None,))[:2] != e for n, e in nombres.items()):
+                    ent = None                          # algún archivo cambió (tags editados): listar de nuevo
+                if ent is None:
+                    ent = {}
+                    try:
+                        with os.scandir(carpeta_abs) as it:
+                            for e in it:
+                                if e.name in nombres:
+                                    try:
+                                        st = e.stat()
+                                    except OSError:
+                                        continue
+                                    b = getattr(st, "st_birthtime", 0) or (st.st_ctime if ES_WINDOWS else 0)
+                                    ent[e.name] = (st.st_mtime_ns, st.st_size, int(b))
+                    except OSError:
+                        continue
+                dirs_nuevo[carpeta_abs] = (dmt, ent)
+                for f, kr in items:
+                    n = os.path.basename(f[0])
+                    e = ent.get(n)
+                    if e and e[:2] == (f[1], f[2]):
+                        vigentes.append((f, kr))
+                        if e[2]:
+                            nacido[f[0]] = e[2]
+            self._dirs = dirs_nuevo
             vigentes.sort(key=lambda x: x[0][0])
             pistas, albumes = [], {}
             ids_alb, generos_txt = {}, {}               # memos: un hash por álbum y un split por género, no por pista
@@ -1811,26 +1876,46 @@ class Indice:
             cat_x = Counter()                           # tags extra presentes en la biblioteca (para el editor)
             repetidos = ("artist", "aartist", "album", "genre", "arts", "aarts", "fecha")      # mismo texto en muchas pistas: una sola copia
             intern = sys.intern
+            # tags ya procesados en la construcción anterior: se reutilizan si el archivo no cambió
+            firma = (tuple(sorted(claves_x)),)
+            prev, nuevo = getattr(self, "_parseados", {}), {}
+            faltan = [f[0] for f, _ in vigentes if (lambda c: not c or c[0] != (f[1], f[2]) or c[1] != firma)(prev.get(f[0]))]
+            crudos_json = {}
+            for k in range(0, len(faltan), 800):
+                parte = faltan[k:k + 800]
+                with self.app.tags.lock:
+                    crudos_json.update(self.app.tags.db.execute(
+                        f"SELECT ruta, meta FROM pistas WHERE ruta IN ({','.join('?' * len(parte))})", parte).fetchall())
             # 1) pistas + "álbum crudo" (título, artista del álbum). Se anota en qué carpetas aparece cada uno:
             #    el mismo título del mismo artista en carpetas distintas (reediciones, homónimos) son álbumes distintos.
             crudos, carpetas_de = [], defaultdict(set)
-            for j, ((ruta, mt, tam, js), kr) in enumerate(vigentes):
+            for j, ((ruta, mt, tam), kr) in enumerate(vigentes):
                 self._ceder(j)
-                completo = json.loads(js)
-                m = {k: completo[k] for k in conservar if k in completo}
-                for k in repetidos:
-                    if k in m:
-                        m[k] = intern(m[k])
-                cx = completo.get("x")
-                if cx:
-                    cat_x.update(cx.keys())
-                    if claves_x:
+                c = prev.get(ruta)
+                if c and c[0] == (mt, tam) and c[1] == firma:
+                    m, xk, add = c[2], c[3], c[4]
+                else:
+                    js = crudos_json.get(ruta)
+                    if js is None:
+                        continue                        # borrada entre las dos consultas
+                    completo = json.loads(js)
+                    m = {k: completo[k] for k in conservar if k in completo}
+                    for k in repetidos:
+                        if k in m:
+                            m[k] = intern(m[k])
+                    cx = completo.get("x")
+                    xk = tuple(cx) if cx else ()
+                    if cx and claves_x:
                         sx = {k: intern(cx[k]) for k in claves_x if k in cx}
                         if sx:
                             m["x"] = sx
+                    add = completo.get("add", 0)
+                nuevo[ruta] = ((mt, tam), firma, m, xk, add)
+                if xk:
+                    cat_x.update(xk)
                 key, rel = kr
                 carpeta = rel.rsplit("/", 1)[0] if "/" in rel else ""
-                ag = completo.get("add") or nacido.get(ruta) or mt // 1_000_000_000
+                ag = add or nacido.get(ruta) or mt // 1_000_000_000
                 pistas.append({"key": key, "rel": rel, "mt": mt, "tam": tam, "m": m, "dir": intern(carpeta),
                                "ag": ag, "ext": intern(rel.rsplit(".", 1)[-1].lower())})
                 alb = m.get("album") or (carpeta.rsplit("/", 1)[-1] if carpeta else self.app.bib.raices[key][1])
@@ -1994,6 +2079,7 @@ class Indice:
                     d["x"][vid] = self._x_preparar(d, defi)
                 except Exception:
                     log.exception("Custom view %s", vid)
+            self._parseados = nuevo
             self.d, self.version, self.t_build = d, v, time.monotonic()
             self._x_cache = OrderedDict()
             # textos normalizados para la búsqueda: ya con el índice publicado (no retrasa la navegación)
@@ -2542,7 +2628,7 @@ class Indice:
         defs = self.defs_x()
         for k in activas:
             nombre = defs[k]["nombre"] if k in defs else VISTAS.get(k, k)
-            n = len(self.hijos(f"v:{k}") or []) if d else 1
+            n = len(self.app.bib.hijos(f"v:{k}") or []) if d else 1      # cacheada: abrir la vista luego es inmediato
             out.append(("v", f"v:{k}", plantilla(tpl, {"nombre": nombre, "n": n}), n, None,
                         "object.container.storageFolder", None, None))
         return out
@@ -3132,6 +3218,11 @@ class App:
         nombre = os.path.basename(src[1]).casefold()
         return hashlib.sha1(f"{src[0]}|{nombre}|{st.st_mtime_ns}|{st.st_size}".encode("utf-8", "replace")).hexdigest()
 
+    def clave_fuente(self, tipo, ruta, mt_ns, tam):
+        """Lo mismo que clave_portada, con fecha y tamaño ya conocidos (del listado): sin tocar el disco."""
+        nombre = os.path.basename(ruta).casefold()
+        return hashlib.sha1(f"{tipo}|{nombre}|{mt_ns}|{tam}".encode("utf-8", "replace")).hexdigest()
+
     def _hash_imagen(self, data):
         """Nombre en disco = hash del CONTENIDO + opciones: 12 pistas con la misma imagen embebida = 1 archivo."""
         p = self.cfg["portadas"]
@@ -3264,6 +3355,7 @@ class App:
         self.cfg_previo_portadas = dict(self.cfg["portadas"])
         guardar_config(cfg)
         self.cfg = cfg
+        self.cfg_gen = getattr(self, "cfg_gen", 0) + 1     # invalida las listas cacheadas
         self.bib.configurar(cfg)
         if cambio_portadas:
             self.aplicar_portadas()
@@ -3326,6 +3418,15 @@ class App:
             except Exception:
                 pass
         cmd = RELANZAR or [sys.executable, str(Path(__file__).resolve())]
+        if not ES_WINDOWS:
+            # Linux/macOS/Docker: reemplazar este mismo proceso (mismo PID). Con Popen + salir, en un contenedor
+            # el proceso principal terminaba y el contenedor entero se detenía.
+            try:
+                sys.stdout.flush()
+                sys.stderr.flush()
+                os.execv(cmd[0], cmd)
+            except OSError as e:
+                log.error("Restart via exec failed (%s); starting a new process", e)
         subprocess.Popen(cmd, cwd=str(DIR_BASE), creationflags=flags, close_fds=True)
         os._exit(0)
 
@@ -3554,6 +3655,7 @@ class Precargador(threading.Thread):
             self.st["total_carpetas"] = len(carpetas)
         hacer_portadas = app.cfg["precarga"]["portadas"]
         vigentes, claves = set(), set()
+        fuentes_vivas = set()                            # claves de TODAS las fuentes que existen (para la limpieza)
         # 2) tags y portadas carpeta por carpeta
         for i, ruta in enumerate(carpetas):
             self.st["carpetas"], self.st["actual"] = i, ruta
@@ -3562,6 +3664,10 @@ class Precargador(threading.Thread):
             l = bib.listar(ruta)
             if not l:
                 continue
+            for img in l[2]:                             # imágenes de la carpeta: fuentes posibles (portada, disco, artista)
+                ck = app.clave_portada(("img", os.path.join(ruta, img)))
+                if ck:
+                    fuentes_vivas.add(ck)
             if not l[1]:
                 if hacer_portadas:                       # carpeta de artista con su propia imagen
                     src = bib.fuente_portada_carpeta(ruta, max_prof=0)
@@ -3572,6 +3678,9 @@ class Precargador(threading.Thread):
                 continue
             archivos = [(os.path.join(ruta, n), m, s) for n, m, s in l[1]]
             vigentes.update(a[0] for a in archivos)
+            for r, m, s in archivos:                     # la clave sale del listado: sin un stat por pista
+                fuentes_vivas.add(app.clave_fuente("emb", r, m, s))
+                fuentes_vivas.add(app.clave_fuente("emb_ar", r, m, s))
             _, faltan = app.tags._en_cache(archivos)
             for r, m, s in faltan:
                 if not app.inactivo():
@@ -3586,7 +3695,10 @@ class Precargador(threading.Thread):
             pc = app.cfg["portadas"]
             fuentes = [bib.fuente_portada_carpeta(ruta, max_prof=0)]
             metas, _ = app.tags._en_cache(archivos)
-            por_pista = pc["por_pista"] or not bib.modo_album(ruta)
+            # Carpeta de un álbum: basta su portada; la de cada pista se saca cuando el reproductor la pide (y casi
+            # siempre es la misma imagen: se reutiliza). Leer la imagen embebida de cada pista en reposo eran
+            # decenas de GB de lectura en una biblioteca grande. Carpetas mezcladas: cada pista tiene la suya.
+            por_pista = not bib.modo_album(ruta)
             for r, mm in sorted(metas.items()):
                 tipos = tipos_imagen(mm)
                 if por_pista and tipos:
@@ -3609,6 +3721,16 @@ class Precargador(threading.Thread):
         quitadas = app.tags.podar(vigentes) if vigentes else 0
         borradas = 0
         if hacer_portadas and app.dir_portadas.exists():
+            # fuentes que ya no existen (archivo borrado o cambiado) dejan de contar; lo generado al pedirlo se queda
+            with app.tags.lock:
+                filas = app.tags.db.execute("SELECT clave, h FROM portadas").fetchall()
+                viejas = [(c,) for c, _ in filas if c not in fuentes_vivas]
+                if viejas and len(viejas) < len(filas):  # (si TODO parece viejo, algo raro pasa: no borrar)
+                    app.tags.db.executemany("DELETE FROM portadas WHERE clave=?", viejas)
+                    filas = [(c, h) for c, h in filas if c in fuentes_vivas]
+            claves |= {h for _, h in filas if h}
+            with app.art_lock:
+                app.art_map.clear()
             for f in app.dir_portadas.rglob("*.jpg"):
                 try:
                     if f.stem not in claves and f.stat().st_mtime < self.st["inicio"]:

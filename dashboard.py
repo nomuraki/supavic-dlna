@@ -27,10 +27,10 @@ import threading
 import time
 import http.client
 from collections import Counter, OrderedDict, defaultdict, deque
-from datetime import datetime, timedelta
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote, unquote, urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape as _esc
 
@@ -57,7 +57,7 @@ RUTA_EVENTOS = DIR_DATOS / "eventos.jsonl"
 RUTA_HIST = DIR_DATOS / "historial.jsonl"
 RUTA_LOG = DIR_DATOS / "dashboard.log"
 ES_WINDOWS = os.name == "nt"
-VERSION = "1.3.1"
+VERSION = "1.4.0"
 log = logging.getLogger("dashboard")
 
 NS_AVT = "urn:schemas-upnp-org:service:AVTransport:1"
@@ -493,7 +493,7 @@ class Reproductores:
                 try:
                     r.sondear(n % 5 == 0)
                     self.seguir_sesion(r)
-                except Exception as e:
+                except Exception:
                     r.fallos += 1
                     if r.fallos == 21:
                         log.info("%s is not responding", r.nombre)

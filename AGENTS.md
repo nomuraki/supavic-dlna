@@ -66,7 +66,13 @@ Ahí van `config.json` y `datos/` (log, pid, eventos, historial y, si `cache.dir
 - `Indice`: se construye desde `cache.db` (sin leer audio), en segundo plano, máx. 1/min y solo tras `QUIETO_SEG`
   (15 s) sin navegar (salvo el primero o `invalidar()`); `mantener()` lo llama la precarga. Los bucles largos llaman
   `_ceder()` (sleep corto si alguien navega). Verifica existencia con un `scandir` por carpeta.
-- "▶ Todas las pistas" de carpetas: `Biblioteca.pistas_vivas` / `contar_vivo` (disco, con presupuesto de tiempo). Nombres visibles traducidos (`VISTAS` se rellena en `aplicar_idioma`).
+- "▶ Todas las pistas" de carpetas: `Biblioteca.pistas_vivas` / `contar_vivo` (disco, con presupuesto de tiempo).
+- Paginación: `Biblioteca.hijos()` cachea la lista completa por oid (carpetas 4 s; vistas hasta que cambien índice,
+  `cfg_gen` o `update_id`; `VOLATILES` 4 s). `_hijos_calc` es el cálculo real.
+- Reconstrucción incremental: `Indice._parseados` (tags ya procesados por ruta + mtime/tamaño + firma de claves extra) y
+  `Indice._dirs` (listado por carpeta + mtime de la carpeta). `_norm`, `_orden`, `_hid`, `_letra`, `natkey` con `lru_cache`.
+- Docker: `Dockerfile` + `docker-compose.yml` (red del host, `SUPAVIC_HOME=/data`, variables `SUPAVIC_*` solo en el
+  primer arranque, ver `cargar_config`). Nombres visibles traducidos (`VISTAS` se rellena en `aplicar_idioma`).
 - `Precargador`: en reposo (`precarga.inactividad_min` sin Browse/portadas ni transferencias) recorre todo; cualquier
   actividad la pausa.
 - `esc()` / DIDL: `upnp:albumArtURI` con `dlna:profileID="JPEG_SM"` si la portada ≤ 640 px.
