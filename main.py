@@ -49,7 +49,7 @@ try:
 except ImportError:          # funciona sin Pillow, pero manda las portadas sin redimensionar
     Image = None
 
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 APP = "SupaVic DLNA"
 
 
@@ -116,7 +116,14 @@ CONFIG_DEFECTO = {
         "tipo_conteo": "pistas",       # {n}: pistas = canciones; elementos = álbumes de un artista, artistas de un género…
         # Cómo se ven los títulos. Campos: {nombre} {n} {pistas} {albumes} · {album} {año} {artista} {calidad}
         # {formato} {genero} y cualquier tag ({label}, {composer}…). Los () y [] que queden vacíos se quitan.
-        "plantillas": {"raiz": "{nombre}", "contenedor": "{nombre} ({n})", "album": "{album} [{año}]"},
+        "plantillas": {"raiz": "{nombre}", "contenedor": "{nombre} ({n})", "album": "{album} [{año}]",
+                       "pista": "{titulo}"},  # pistas: {titulo} {numero} {disco} {artista} {album} {año} y cualquier tag
+        "album_en_pistas": False,
+        "carpeta_en_iguales": True,    # dos álbumes que se verían con el mismo título: " · <carpeta>" al segundo      # las pistas muestran el álbum con la plantilla "album" (BubbleUPnP, upplay)
+        # Nombre de artista que se MUESTRA (el crédito tal como está impreso, p. ej. Picard "DISPLAY ARTIST"):
+        # el primero de estos tags que tenga la pista; si ninguno, ARTIST. Los índices siguen usando ARTIST(S).
+        "tags_artista": "display artist, artist display, artist label",
+        "tags_artista_album": "display albumartist, albumartist display, albumartist label",
         # Vistas propias: {"id", "nombre", "niveles": ["composer", …], "filtro": [{"tag", "op", "valor"}],
         #                  "plantilla_album": ""}. Las que estén en "activas" aparecen en la raíz.
         "personalizadas": [],
@@ -356,11 +363,19 @@ def validar_config(nueva):
                            "album": ("{album} [{año}]" if anio else "{album}")
                            + (" ({pistas})" if conteo and crudo.get("tipo_conteo", "pistas") == "pistas" else "")}
     pl = v["plantillas"]
-    for k in ("raiz", "contenedor", "album"):
+    for viejo, nuevo in (("{album} [{años}] • {version}", "{album} [{años}]< • {version}>"),   # predefinido de la 1.3:
+                         ("{album} [{years}] • {version}", "{album} [{years}]< • {version}>")):  # dejaba un "•" suelto
+        if pl.get("album") == viejo:
+            pl["album"] = nuevo
+    for k in ("raiz", "contenedor", "album", "pista"):
         t = str(pl.get(k) or "").strip()[:120]
         pl[k] = t or CONFIG_DEFECTO["vistas"]["plantillas"][k]
     if v["tipo_conteo"] not in ("pistas", "elementos"):
         v["tipo_conteo"] = "pistas"
+    v["album_en_pistas"] = bool(v.get("album_en_pistas"))
+    v["carpeta_en_iguales"] = bool(v.get("carpeta_en_iguales", True))
+    for k in ("tags_artista", "tags_artista_album"):
+        v[k] = ", ".join(lista_tags(v.get(k)))[:200]
     v["personalizadas"] = validar_personalizadas(v["personalizadas"])
     ids_x = {x["id"] for x in v["personalizadas"]}
     vistas = [x for x in (v["activas"] if isinstance(v["activas"], list) else [])
@@ -415,12 +430,37 @@ def validar_personalizadas(lista):
 _ALIAS_CAMPO = {"name": "nombre", "count": "n", "tracks": "pistas", "albums": "albumes", "álbumes": "albumes",
                 "year": "año", "anio": "año", "artist": "artista", "quality": "calidad", "format": "formato",
                 "genre": "genero", "género": "genero", "álbum": "album", "years": "años", "anios": "años",
-                "release_year": "año_edicion", "anio_edicion": "año_edicion"}
+                "release_year": "año_edicion", "anio_edicion": "año_edicion",
+                "title": "titulo", "título": "titulo", "track": "numero", "tracknumber": "numero", "número": "numero",
+                "disc": "disco", "discnumber": "disco"}
 _RE_CAMPO = re.compile(r"\{([^{}]{1,40})\}")
 _RE_VACIOS = re.compile(r"\s*(\(\s*\)|\[\s*\]|\{\s*\})")
 
 
 _PLANT_CACHE = {}
+_PISTA_DEFECTO = "{titulo}"
+
+
+@lru_cache(maxsize=64)
+def _lista_tags(texto):
+    return tuple(dict.fromkeys(t.strip().casefold() for t in re.split(r"[,;\n]", texto or "") if t.strip()))[:8]
+
+
+def lista_tags(v):
+    """'display artist, artist label' -> ('display artist', 'artist label')"""
+    return _lista_tags(v if isinstance(v, str) else ", ".join(map(str, v or ())))
+
+
+def tag_mostrado(x, tags):
+    """El primer tag de la lista que tenga valor en los tags extra de una pista (o '')."""
+    if x and tags:
+        for t in tags:
+            v = x.get(t)
+            if v:
+                return v
+    return ""
+
+
 _CAMPOS_CONTEO = {"n", "pistas", "albumes"}            # solo estos llevan separador de miles (años no: 2017)
 
 
@@ -438,10 +478,31 @@ def _compilar_plantilla(tpl):
     return c
 
 
-def plantilla(tpl, campos, extra=None):
-    """'{album} [{año}]' + campos -> 'Kind of Blue [1959]'. Campos vacíos o 0 desaparecen con sus () / []."""
-    partes = _compilar_plantilla(tpl)
-    out, vacio = [], False
+_RE_GRUPO = re.compile(r"<([^<>]*\{[^{}]{1,40}\}[^<>]*)>")
+_GRUPOS_CACHE = {}
+
+
+def _compilar_grupos(tpl):
+    """Grupos opcionales '<…>' (como los [] de foobar2000): '{album}< • {version}>' ->
+    ('{album}{\x01g0}', [' • {version}']). Cada grupo se resuelve aparte y entra como un campo más, así que un
+    valor con '{' o '<' no se interpreta. Solo cuenta como grupo si tiene al menos un campo."""
+    c = _GRUPOS_CACHE.get(tpl)
+    if c is None:
+        grupos = []
+
+        def sub(m):
+            grupos.append(m.group(1))
+            return "{\x01g%d}" % (len(grupos) - 1)
+        c = (_RE_GRUPO.sub(sub, tpl), grupos) if "<" in tpl else (tpl, [])
+        if len(_GRUPOS_CACHE) > 256:
+            _GRUPOS_CACHE.clear()
+        _GRUPOS_CACHE[tpl] = c
+    return c
+
+
+def _rellenar(partes, campos, extra):
+    """-> (texto, ¿algún campo con valor?, ¿algún campo vacío?)"""
+    out, hay, vacio = [], False, False
     for j, x in enumerate(partes):
         if not j % 2:
             out.append(x)
@@ -452,10 +513,26 @@ def plantilla(tpl, campos, extra=None):
         if v in (None, "", 0):
             vacio = True
             continue
+        hay = True
         out.append(f"{v:,}" if isinstance(v, int) and x in _CAMPOS_CONTEO else str(v))
-    s = "".join(out)
+    return "".join(out), hay, vacio
+
+
+def plantilla(tpl, campos, extra=None):
+    """'{album} [{año}]' + campos -> 'Kind of Blue [1959]'. Campos vacíos o 0 desaparecen con sus () / [].
+    '<…>' es un grupo opcional: se muestra solo si alguno de sus campos tiene valor
+    ('{album}< • {version}>< ({remasterdate} Remaster)>' -> 'Queen • Deluxe Edition (2011 Remaster)')."""
+    principal, grupos = _compilar_grupos(tpl)
+    if grupos:
+        campos = dict(campos)
+        for i, g in enumerate(grupos):
+            t, hay, vacio = _rellenar(_compilar_plantilla(g), campos, extra)
+            if hay and vacio:
+                t = _RE_VACIOS.sub("", t)
+            campos["\x01g%d" % i] = t if hay else ""
+    s, _, vacio = _rellenar(_compilar_plantilla(principal), campos, extra)
     if vacio:
-        s = " ".join(_RE_VACIOS.sub("", s).split()).strip(" -·|,;/")
+        s = " ".join(_RE_VACIOS.sub("", s).split()).strip(" -·•|,;/")
     return s or str(campos.get("nombre") or campos.get("album") or "")
 
 
@@ -705,7 +782,7 @@ _TAGS_FUERA = ("musicbrainz", "replaygain", "itun", "acoustid", "lyrics", "unsyn
                "akid", "xid ", "rtng", "hdvd", "tvsh", "tven", "tves", "tvsn", "tvnn", "pcst", "purl", "egid", "keyw",
                "catg", "\xa9lyr", "\xa9cmt", "\xa9des", "\xa9enc", "\xa9st3", "\xa9xyz", "chpl", "ctoc", "etco",
                "id3v1", "id3", "tipl", "tmcl", "ipls")
-MAX_TAGS_EXTRA, MAX_LARGO_TAG = 24, 120
+MAX_TAGS_EXTRA, MAX_LARGO_TAG = 40, 120
 
 
 def _clave_extra(k):
@@ -1085,8 +1162,10 @@ class CacheTags:
                     res[ruta] = json.loads(row[2])
                     continue
                 nombre = os.path.basename(ruta).casefold()
+                # Solo es "movido" si la ruta vieja ya no existe: dos archivos distintos pueden coincidir en nombre,
+                # tamaño y mtime (copias en lote, FAT/exFAT con mtime de 2 s) y no deben compartir tags.
                 hit = next((m for r, m in self.db.execute("SELECT ruta, meta FROM pistas WHERE tam=? AND mtime=?", (tam, mt))
-                            if os.path.basename(r).casefold() == nombre), None)
+                            if r != ruta and os.path.basename(r).casefold() == nombre and not os.path.exists(r)), None)
                 if hit is not None:
                     res[ruta] = json.loads(hit)
                     reubicar.append((ruta, mt, tam, hit))
@@ -1605,17 +1684,28 @@ class Biblioteca:
         mime = AUDIO.get(ext, "application/octet-stream")
         prel = self.padre_rel(rel)
         carpeta = prel.rsplit("/", 1)[-1] if prel else self.raices[key][1]
+        v = self.app.cfg["vistas"]
+        x = mm.get("x")
         titulo = mm.get("title") or os.path.splitext(nombre)[0]
-        artista = mostrar_artistas(mm.get("artist") or mm.get("aartist") or "")
+        artista = mostrar_artistas(tag_mostrado(x, lista_tags(v.get("tags_artista")))
+                                   or mm.get("artist") or mm.get("aartist") or "")
+        aartista = tag_mostrado(x, lista_tags(v.get("tags_artista_album"))) or mm.get("aartist")
         album = mm.get("album") or carpeta
+        if v.get("album_en_pistas") and mm.get("album"):
+            album = self.app.indice.titulo_album_pista(key, rel) or album
+        tp = v["plantillas"].get("pista") or _PISTA_DEFECTO
+        if tp != _PISTA_DEFECTO:
+            campos = {"titulo": titulo, "nombre": titulo, "numero": mm.get("track") or "", "disco": mm.get("disc") or "",
+                      "artista": artista, "album": mm.get("album") or "", "año": mm.get("year") or ""}
+            titulo = plantilla(tp, campos, (lambda k: (x or {}).get(k, "")))
         qrel = quote(rel, safe="/")
         art = self.url_portada_pista(base, key, rel, prel, qrel, mm, mt, tam)
         s = (f'<item id="t{key}:{esc(rel)}" parentID="{esc(parent)}" restricted="1">'
              f"<dc:title>{esc(titulo)}</dc:title><upnp:class>object.item.audioItem.musicTrack</upnp:class>")
         if artista:
             s += f"<dc:creator>{esc(artista)}</dc:creator><upnp:artist>{esc(artista)}</upnp:artist>"
-        if mm.get("aartist"):
-            s += f'<upnp:artist role="AlbumArtist">{esc(mostrar_artistas(mm["aartist"]))}</upnp:artist>'
+        if aartista:
+            s += f'<upnp:artist role="AlbumArtist">{esc(mostrar_artistas(aartista))}</upnp:artist>'
         s += f"<upnp:album>{esc(album)}</upnp:album>"
         if mm.get("genre"):
             s += f"<upnp:genre>{esc(mm['genre'])}</upnp:genre>"
@@ -2152,10 +2242,15 @@ class Indice:
                         for n in nombres_artistas(mi.get("arts"), mi.get("artist", "")):
                             if _hid(n) in interpretes:
                                 interpretes[_hid(n)].setdefault("emb", i)
-            iguales = Counter((_norm(a["titulo"]), _norm(a["artista"])) for a in albumes.values())
-            for a in albumes.values():                    # dos "21" de Adele (reediciones): " · <carpeta>"
-                if iguales[(_norm(a["titulo"]), _norm(a["artista"]))] > 1:
-                    a["disamb"] = _carpeta_album(a["dir"]).rsplit("/", 1)[-1] or self.app.bib.raices[a["key"]][1]
+            iguales = defaultdict(list)
+            for aid, a in albumes.items():
+                iguales[(_norm(a["titulo"]), _norm(a["artista"]))].append(aid)
+            for grupo in iguales.values():                # dos "21" de Adele (reediciones): " · <carpeta>", pero solo
+                if len(grupo) > 1:                        # si el título con formato no basta ("Peter Gabriel [1977]")
+                    for aid in grupo:
+                        a = albumes[aid]
+                        a["iguales"] = grupo
+                        a["disamb"] = _carpeta_album(a["dir"]).rsplit("/", 1)[-1] or self.app.bib.raices[a["key"]][1]
             por_anio = lambda aid: (albumes[aid]["anio"] or 9999, _orden(albumes[aid]["titulo"]))
             por_titulo = lambda aid: (_orden(albumes[aid]["asort"] or albumes[aid]["titulo"]),)
             for ar in artistas.values():                         # compilaciones: por título (o albumsort), no por año
@@ -2227,14 +2322,48 @@ class Indice:
         n = elementos if v.get("tipo_conteo") == "elementos" else pistas
         return plantilla(v["plantillas"]["contenedor"], {"nombre": nombre, "n": n, "pistas": pistas, "albumes": albumes})
 
-    def na(self, a, pistas, titulo=None, plant=None):
+    def artista_album(self, a):
+        """Artista del álbum que se MUESTRA: el crédito impreso (DISPLAY ALBUMARTIST…) si la primera pista lo trae."""
+        d = self.d
+        if d and a.get("pistas"):
+            x = d["pistas"][a["pistas"][0]]["m"].get("x")
+            t = tag_mostrado(x, lista_tags(self.app.cfg["vistas"].get("tags_artista_album")))
+            if t:
+                return t
+        return a.get("artista", "")
+
+    def album_de(self, key, rel):
+        """Álbum del índice al que pertenece una pista (o None: carpeta sin indexar, aún no leída…)."""
+        d = self.d
+        if not d:
+            return None
+        pr = d.get("por_ruta")
+        if pr is None:
+            pr = d["por_ruta"] = {(p["key"], p["rel"]): i for i, p in enumerate(d["pistas"])}
+        i = pr.get((key, rel))
+        return d["albumes"].get(d["pistas"][i]["al"]) if i is not None else None
+
+    def titulo_album_pista(self, key, rel):
+        """Título con formato del álbum de una pista (memo por álbum mientras no cambien índice ni ajustes)."""
+        d = self.d
+        a = self.album_de(key, rel)
+        if not a:
+            return None
+        memo = d.setdefault("_tit_pista", {})
+        k = (a["id"], getattr(self.app.bib, "cfg_gen", 0))
+        t = memo.get(k)
+        if t is None:
+            t = memo[k] = self.na(a, len(a["pistas"]))
+        return t
+
+    def na(self, a, pistas, titulo=None, plant=None, _sin_dis=False):
         """Título de un álbum con la plantilla "album" (o la de la vista personalizada)."""
         v = self.app.cfg["vistas"]
         if titulo:                                          # Décadas: "1999 · Álbum"
             return titulo
         orig, ed = a["anio"] or 0, a.get("ry") or 0
         años = f"{orig}/{ed}" if orig and ed and ed != orig else (orig or ed or "")
-        campos = {"album": a["titulo"], "año": a["anio"] or "", "artista": mostrar_artistas(a.get("artista", "")),
+        campos = {"album": a["titulo"], "año": a["anio"] or "", "artista": mostrar_artistas(self.artista_album(a)),
                   "años": años, "año_edicion": ed or "", "pistas": pistas,
                   "n": pistas if v.get("tipo_conteo") != "elementos" else "", "calidad": calidad_album(a),
                   "formato": a.get("ext", "").upper(), "genero": next(iter(sorted(a.get("generos") or [])), "")}
@@ -2246,8 +2375,13 @@ class Indice:
             return x.get(k, "")
         t = plantilla(plant or v["plantillas"]["album"], campos, extra)
         dis = a.get("disamb")
-        if dis and _norm(dis) not in _norm(t):
-            t += f" · {dis}"
+        if dis and not _sin_dis and v.get("carpeta_en_iguales", True) and _norm(dis) not in _norm(t) and d:
+            # la carpeta solo si otro álbum igual se vería con el mismo título (mismo año, plantilla sin año…);
+            # se compara sin conteos: "21 [2011] (11)" y "21 [2011] (14)" siguen siendo el mismo título
+            base = self.na(a, 0, plant=plant, _sin_dis=True)
+            if any(o is not a and self.na(o, 0, plant=plant, _sin_dis=True) == base
+                   for o in (d["albumes"].get(x) for x in a.get("iguales", ())) if o):
+                t += f" · {dis}"
         return t
 
     def n_albumes(self, d, aids):
@@ -2335,13 +2469,13 @@ class Indice:
     def _c_album(self, d, aid, oid=None, titulo=None):
         a = d["albumes"][aid]
         return ("v", oid or f"v:al:{aid}", self.na(a, len(a["pistas"]), titulo), len(a["pistas"]),
-                self._art_album(a), C_ALBUM, a["artista"], a.get("fecha") or a["anio"] or None)
+                self._art_album(a), C_ALBUM, self.artista_album(a), a.get("fecha") or a["anio"] or None)
 
     def _c_album_ia(self, d, iid, aid):
         """Álbum dentro de un artista de pista: solo cuenta (y contiene) las pistas de ese artista."""
         a, n = d["albumes"][aid], len(d["interpretes"][iid]["albumes"][aid])
         return ("v", f"v:ia:{iid}:al:{aid}", self.na(a, n), n, self._art_album(a), C_ALBUM,
-                a["artista"], a.get("fecha") or a["anio"] or None)
+                self.artista_album(a), a.get("fecha") or a["anio"] or None)
 
     def _c_interprete(self, d, iid):
         ip = d["interpretes"][iid]
@@ -2399,10 +2533,13 @@ class Indice:
             claves.update(n for n in dfn["niveles"] if n not in NIVELES_CALC)
             claves.update(f["tag"] for f in dfn["filtro"] if f["tag"] not in NIVELES_CALC)
             claves.update(_RE_CAMPO.findall(dfn.get("plantilla_album") or ""))
-        claves.update(_RE_CAMPO.findall(self.app.cfg["vistas"]["plantillas"]["album"]))
+        v = self.app.cfg["vistas"]
+        claves.update(_RE_CAMPO.findall(v["plantillas"]["album"]))
+        claves.update(_RE_CAMPO.findall(v["plantillas"].get("pista") or ""))
         conocidos = {"nombre", "n", "pistas", "albumes", "album", "año", "años", "año_edicion", "artista", "calidad",
-                     "formato", "genero"}
-        return {c.strip().casefold() for c in claves} - conocidos - set(_ALIAS_CAMPO)
+                     "formato", "genero", "titulo", "numero", "disco"}
+        return ({c.strip().casefold() for c in claves} - conocidos - set(_ALIAS_CAMPO)
+                | set(lista_tags(v.get("tags_artista_album"))))
 
     def _crudo(self, d, tag, i):
         """Dato crudo (hashable) del que sale el valor de un nivel: muchas pistas comparten el mismo,
@@ -2581,7 +2718,7 @@ class Indice:
             for a in self._x_orden_albumes(d, por_album):
                 al, n = d["albumes"][a], len(por_album[a])
                 out.append(("v", f"{base_oid}:al:{a}", self.na(al, n, plant=plant), n, self._art_album(al), C_ALBUM,
-                            al["artista"], al.get("fecha") or al["anio"] or None))
+                            self.artista_album(al), al.get("fecha") or al["anio"] or None))
             return out
         k = len(valores)
         tag = niveles[k]
@@ -4538,7 +4675,7 @@ footer{max-width:980px;margin:auto;padding:0 16px 40px;color:var(--mut);font-siz
 @media(max-width:700px){.plant{grid-template-columns:1fr}}
 .plant .ej{font-size:13px;color:var(--mut);grid-column:2}@media(max-width:700px){.plant .ej{grid-column:1}}
 .plant .ej b{color:var(--tx);font-weight:600}
-.chips{font-size:12px;color:var(--mut);margin-top:10px;line-height:1.9}.chips code{background:var(--in);border:1px solid var(--line);border-radius:6px;padding:1px 6px;cursor:pointer}
+.chips{font-size:12px;color:var(--mut);margin-top:10px;line-height:1.9}.chips code{background:var(--in);border:1px solid var(--line);border-radius:6px;padding:1px 6px;cursor:pointer;word-break:normal;overflow-wrap:anywhere}
 .prio{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:10px}
 .prio ol{margin:6px 0 0;padding-left:20px;font-size:13px}.prio li{margin:2px 0}
 .ed-niv{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.ed-niv select{width:auto;min-width:170px;flex:1}
@@ -4616,11 +4753,20 @@ dialog.ancho{width:min(680px,calc(100vw - 32px))}
       <label for="pl-raiz" style="margin:0" data-i="pl.raiz"></label><div class="ed-niv"><select id="pls-raiz"></select><input type="text" id="pl-raiz" maxlength="120"></div><div class="ej" id="ej-raiz"></div>
       <label for="pl-cont" style="margin:0" data-i="pl.cont"></label><div class="ed-niv"><select id="pls-cont"></select><input type="text" id="pl-cont" maxlength="120"></div><div class="ej" id="ej-cont"></div>
       <label for="pl-album" style="margin:0" data-i="pl.album"></label><div class="ed-niv"><select id="pls-album"></select><input type="text" id="pl-album" maxlength="120"></div><div class="ej" id="ej-album"></div>
+      <label for="pl-pista" style="margin:0" data-i="pl.pista"></label><div class="ed-niv"><select id="pls-pista"></select><input type="text" id="pl-pista" maxlength="120"></div><div class="ej" id="ej-pista"></div>
     </div>
     <div class="chips" id="pl-campos"></div>
     <div class="row">
       <div><label for="v-conteo" data-i="v.conteo"></label><select id="v-conteo"><option value="pistas" data-i="v.conteo.pistas"></option><option value="elementos" data-i="v.conteo.elem"></option></select></div>
       <div></div>
+    </div>
+    <label class="chk"><input type="checkbox" id="v-alpista"> <span data-i="v.alpista"></span></label>
+    <label class="chk"><input type="checkbox" id="v-carpig"> <span data-i="v.carpig"></span></label>
+    <h3 class="f" data-i="n.artmost"></h3>
+    <p class="mut" style="margin:4px 0 0;font-size:13px" data-i="n.artmost.d"></p>
+    <div class="row">
+      <div><label for="v-tart" data-i="v.tart"></label><input type="text" id="v-tart" maxlength="200"></div>
+      <div><label for="v-taart" data-i="v.taart"></label><input type="text" id="v-taart" maxlength="200"></div>
     </div>
   </div>
 
@@ -4670,7 +4816,10 @@ dialog.ancho{width:min(680px,calc(100vw - 32px))}
   <h2 data-i="h.mant"></h2>
   <div class="card"><p class="mut" style="margin-top:0" data-i="mant.txt"></p>
     <div class="acts" style="margin-top:0"><button class="btn" id="m-cache" data-i="btn.borrar"></button><button class="btn" id="m-reini" data-i="btn.reiniciar"></button></div>
-    <div class="msg" id="m-msg"></div></div>
+    <div class="msg" id="m-msg"></div>
+    <h3 class="f" data-i="h.export"></h3><p class="mut" style="margin:4px 0 0;font-size:13px" data-i="export.d"></p>
+    <div class="acts"><button class="btn" id="m-exp" data-i="btn.exportar"></button><button class="btn" id="m-imp" data-i="btn.importar"></button><input type="file" id="m-imp-f" accept=".json,application/json" hidden></div>
+    <div class="msg" id="m-imsg"></div></div>
 </section>
 
 <section id="t-log"><div class="acts" style="margin:0 0 10px"><button class="btn sm" id="l-ref" data-i="btn.actualizar"></button></div><div id="log"></div></section>
@@ -4707,7 +4856,12 @@ es:{"tab.nav":"Navegación","n.intro":"Así se ve tu música en el WiiM (o en cu
 "vd.tag":"tag {tag}: {n} pistas","vd.tag0":"tag {tag}: ninguna pista todavía",
 "n.titulos":"Cómo se ven los títulos","n.titulos.d":"Elige un formato o escribe el tuyo. Lo que va entre llaves se reemplaza; si un dato no existe, desaparece junto con sus paréntesis.",
 "pl.raiz":"Entradas de la raíz","pl.cont":"Artistas, géneros, carpetas…","pl.album":"Álbumes","pl.custom":"Personalizado","pl.ej":"Ejemplo:",
-"pl.campos":"Campos: <code>{nombre}</code> <code>{n}</code> el número elegido abajo · <code>{pistas}</code> <code>{albumes}</code> · en álbumes: <code>{album}</code> <code>{año}</code> <code>{años}</code> (original/edición: 1975/2005) <code>{artista}</code> <code>{calidad}</code> (24/96, DSD64, MP3 320k) <code>{formato}</code> <code>{genero}</code> y cualquier tag de tus archivos, como <code>{label}</code> o <code>{composer}</code>",
+"pl.pista":"Pistas","v.carpig":"Si dos álbumes se verían con el mismo título, agregar el nombre de su carpeta <span class=\"hint\">p. ej. dos ediciones de «21 [2011]»</span>","v.alpista":"Las pistas muestran el álbum con este mismo formato <span class=\"hint\">para reproductores que muestran el álbum en cada pista (BubbleUPnP, upplay)</span>",
+"n.artmost":"Nombre de artista que se muestra","n.artmost.d":"Si tus archivos traen el crédito tal como está impreso en el disco (p. ej. Picard: <code>DISPLAY ARTIST</code>), se muestra ese; si no, el de ARTIST. Las listas de Artistas siguen usando cada artista por separado. Escribe los tags separados por comas, el primero que tenga valor gana.",
+"v.tart":"En pistas","v.taart":"En álbumes",
+"h.export":"Exportar / importar ajustes","export.d":"Guarda todos tus ajustes (carpetas, vistas, formatos…) en un archivo, o cárgalos de otro. Al importar se conservan el puerto y la carpeta de caché de esta instalación.",
+"btn.exportar":"Exportar ajustes","btn.importar":"Importar ajustes…","import.mal":"Ese archivo no parece un archivo de ajustes de SupaVic.",
+"pl.campos":"Campos: <code>{nombre}</code> <code>{n}</code> el número elegido abajo · <code>{pistas}</code> <code>{albumes}</code> · en álbumes: <code>{album}</code> <code>{año}</code> <code>{años}</code> (original/edición: 1975/2005) <code>{artista}</code> <code>{calidad}</code> (24/96, DSD64, MP3 320k) <code>{formato}</code> <code>{genero}</code> y cualquier tag de tus archivos, como <code>{label}</code> o <code>{composer}</code> · en pistas: <code>{titulo}</code> <code>{numero}</code> <code>{disco}</code> <code>{artista}</code> <code>{album}</code> <code>{año}</code> · <b>&lt;…&gt;</b> = texto opcional, solo aparece si alguno de sus campos tiene valor: <code>{album}&lt; • {version}&gt;&lt; ({remasterdate} Remaster)&gt;</code>",
 "v.conteo":"Qué cuenta <code>{n}</code>","v.conteo.pistas":"Canciones","v.conteo.elem":"Elementos (álbumes de un artista, artistas de un género…)","v.agr":"A partir de <span class=\"hint\">elementos en la lista</span>","n.listas":"Listas largas","n.listas.d":"Artistas, álbumes, compositores, sellos y tus vistas. Completa: todo en una sola lista (desplazas o buscas). Por letra: primero A, B, C… y adentro los de esa letra, más una entrada \"Todos\" con la lista completa.","v.modo":"Cómo mostrarlas","v.modo.lista":"Lista completa","v.modo.letras":"Agrupadas por letra (A, B, C…)",
 "n.port":"Portadas","n.port.d":"El servidor busca la imagen en este orden y usa la primera que encuentra. Tus archivos nunca se modifican.",
 "pr.pista":"Cada pista","pr.pista.l":"<li>Su portada embebida (frontal)</li><li>La imagen de su disco: <code>&lt;subtítulo del disco&gt;.jpg</code></li><li>Otra embebida (etiqueta del CD, ilustración)</li><li>La imagen de su carpeta</li>",
@@ -4761,7 +4915,12 @@ en:{"tab.nav":"Browsing","n.intro":"This is how your music looks on the WiiM (or
 "vd.tag":"{tag} tag: {n} tracks","vd.tag0":"{tag} tag: no tracks yet",
 "n.titulos":"How titles look","n.titulos.d":"Pick a format or write your own. Whatever is in braces gets replaced; if a value doesn't exist, it disappears together with its brackets.",
 "pl.raiz":"Root entries","pl.cont":"Artists, genres, folders…","pl.album":"Albums","pl.custom":"Custom","pl.ej":"Example:",
-"pl.campos":"Fields: <code>{name}</code> <code>{count}</code> the number chosen below · <code>{tracks}</code> <code>{albums}</code> · for albums: <code>{album}</code> <code>{year}</code> <code>{years}</code> (original/release: 1975/2005) <code>{artist}</code> <code>{quality}</code> (24/96, DSD64, MP3 320k) <code>{format}</code> <code>{genre}</code> and any tag in your files, like <code>{label}</code> or <code>{composer}</code>",
+"pl.pista":"Tracks","v.carpig":"If two albums would show the same title, add their folder name <span class=\"hint\">e.g. two editions of “21 [2011]”</span>","v.alpista":"Tracks show their album with this same format <span class=\"hint\">for players that show the album on each track (BubbleUPnP, upplay)</span>",
+"n.artmost":"Artist name shown","n.artmost.d":"If your files carry the credit as printed on the release (e.g. Picard: <code>DISPLAY ARTIST</code>), that's what's shown; otherwise ARTIST. The Artists lists still use each artist separately. Enter tags separated by commas; the first one with a value wins.",
+"v.tart":"On tracks","v.taart":"On albums",
+"h.export":"Export / import settings","export.d":"Save all your settings (folders, views, title formats…) to a file, or load them from one. Importing keeps this install's port and cache folder.",
+"btn.exportar":"Export settings","btn.importar":"Import settings…","import.mal":"That file doesn't look like a SupaVic settings file.",
+"pl.campos":"Fields: <code>{name}</code> <code>{count}</code> the number chosen below · <code>{tracks}</code> <code>{albums}</code> · for albums: <code>{album}</code> <code>{year}</code> <code>{years}</code> (original/release: 1975/2005) <code>{artist}</code> <code>{quality}</code> (24/96, DSD64, MP3 320k) <code>{format}</code> <code>{genre}</code> and any tag in your files, like <code>{label}</code> or <code>{composer}</code> · for tracks: <code>{title}</code> <code>{track}</code> <code>{disc}</code> <code>{artist}</code> <code>{album}</code> <code>{year}</code> · <b>&lt;…&gt;</b> = optional text, shown only when one of its fields has a value: <code>{album}&lt; • {version}&gt;&lt; ({remasterdate} Remaster)&gt;</code>",
 "v.conteo":"What <code>{count}</code> counts","v.conteo.pistas":"Songs","v.conteo.elem":"Items (an artist's albums, a genre's artists…)","v.agr":"Starting at <span class=\"hint\">items in the list</span>","n.listas":"Long lists","n.listas.d":"Artists, albums, composers, labels and your own views. Full list: everything in one list (scroll or search). By letter: first A, B, C… and inside each one its items, plus an \"All\" entry with the full list.","v.modo":"How to show them","v.modo.lista":"Full list","v.modo.letras":"Grouped by letter (A, B, C…)",
 "n.port":"Covers","n.port.d":"The server looks for the image in this order and uses the first one it finds. Your files are never modified.",
 "pr.pista":"Each track","pr.pista.l":"<li>Its embedded cover (front)</li><li>Its disc image: <code>&lt;disc subtitle&gt;.jpg</code></li><li>Another embedded image (CD label, illustration)</li><li>Its folder's image</li>",
@@ -4812,13 +4971,18 @@ let cfg=null, carpetas=[], sinIdx=new Set(), dRuta="", vistasDisp=[], vistasX=[]
 const PRESET_TAG={compositores:"composer",directores:"conductor",sellos:"label"};
 const PLANTS={raiz:["{nombre}","{nombre} ({n})"],
   cont:["{nombre} ({n})","{nombre}","{nombre} ({pistas})"],
-  album:["{album} [{año}]","{album} [{años}]","{album} ({año})","{año} - {album}","{album}","{album} [{año}] {calidad}","{album} [{años}] • {version}","{album} [{año}] ({pistas})"]};
+  album:["{album} [{año}]","{album} [{años}]","{album} ({año})","{año} - {album}","{album}","{album} [{año}] {calidad}","{album} [{años}]< • {version}>","{album} [{año}] ({pistas})"],
+  pista:["{titulo}","{titulo} ({subtitle})","{titulo} ({version})","{numero}. {titulo}"]};
 const EJ={raiz:{nombre:LANG==="es"?"Artistas":"Artists",n:1234},
   cont:{nombre:"Miles Davis",n:12,pistas:96,albumes:12},
-  album:{album:"Kind of Blue",año:1959,años:"1959/1997",año_edicion:1997,artista:"Miles Davis",pistas:5,n:5,calidad:"24/96",formato:"FLAC",genero:"Jazz",label:"Columbia",composer:"Miles Davis",version:"Remaster"}};
-const ALIAS={name:"nombre",count:"n",tracks:"pistas",albums:"albumes","álbumes":"albumes",year:"año",anio:"año",years:"años",anios:"años",release_year:"año_edicion",anio_edicion:"año_edicion",artist:"artista",quality:"calidad",format:"formato",genre:"genero","género":"genero","álbum":"album"};
-function plantilla(tpl,c){let vacio=false;let s=tpl.replace(/\{([^{}]{1,40})\}/g,(m,k)=>{k=k.trim().toLowerCase();k=ALIAS[k]||k;const v=c[k];if(v===undefined||v===""||v===0){vacio=true;return""}return typeof v==="number"&&["n","pistas","albumes"].includes(k)?nf(v):String(v)});
-  if(vacio)s=s.replace(/\s*(\(\s*\)|\[\s*\]|\{\s*\})/g,"").replace(/\s+/g," ").replace(/^[\s\-·|,;/]+|[\s\-·|,;/]+$/g,"");return s||c.nombre||c.album||""}
+  album:{album:"Kind of Blue",año:1959,años:"1959/1997",año_edicion:1997,artista:"Miles Davis",pistas:5,n:5,calidad:"24/96",formato:"FLAC",genero:"Jazz",label:"Columbia",composer:"Miles Davis",version:"Remaster"},
+  pista:{titulo:"So What",nombre:"So What",numero:1,disco:1,artista:"Miles Davis",album:"Kind of Blue",año:1959,subtitle:"Take 3",version:"Mono"}};
+const ALIAS={name:"nombre",count:"n",tracks:"pistas",albums:"albumes","álbumes":"albumes",year:"año",anio:"año",years:"años",anios:"años",release_year:"año_edicion",anio_edicion:"año_edicion",artist:"artista",quality:"calidad",format:"formato",genre:"genero","género":"genero","álbum":"album",title:"titulo","título":"titulo",track:"numero",tracknumber:"numero","número":"numero",disc:"disco",discnumber:"disco"};
+function plantilla(tpl,c0){const c=Object.assign({},c0);let ng=0;
+  tpl=tpl.replace(/<([^<>]*\{[^{}]{1,40}\}[^<>]*)>/g,(m,g)=>{let hay=false,vac=false;let r=g.replace(/\{([^{}]{1,40})\}/g,(mm,k)=>{k=k.trim().toLowerCase();k=ALIAS[k]||k;const v=c[k];if(v===undefined||v===""||v===0){vac=true;return""}hay=true;return String(v)});
+    if(hay&&vac)r=r.replace(/\s*(\(\s*\)|\[\s*\]|\{\s*\})/g,"");const k="\u0001g"+(ng++);c[k]=hay?r:"";return"{"+k+"}"});
+  let vacio=false;let s=tpl.replace(/\{([^{}]{1,40})\}/g,(m,k)=>{k=k.trim().toLowerCase();k=ALIAS[k]||k;const v=c[k];if(v===undefined||v===""||v===0){vacio=true;return""}return typeof v==="number"&&["n","pistas","albumes"].includes(k)?nf(v):String(v)});
+  if(vacio)s=s.replace(/\s*(\(\s*\)|\[\s*\]|\{\s*\})/g,"").replace(/\s+/g," ").replace(/^[\s\-·•|,;/]+|[\s\-·•|,;/]+$/g,"");return s||c.nombre||c.album||""}
 const tagNombre=tg=>(catTags&&catTags.nombres&&catTags.nombres[tg])||tg.replace(/^#/,"");
 const tagPistas=tg=>{const x=catTags&&catTags.tags.find(z=>z.tag===tg);return x?x.pistas:0};
 function nombreVista(k){const c=(cfg.vistas.personalizadas||[]).find(x=>x.id===k);if(c)return c.nombre;const d=vistasDisp.find(x=>x[0]===k);return d?d[1]:k}
@@ -4840,19 +5004,20 @@ function pintarVistas(){
   $("#v-lista").querySelectorAll("[data-dn]").forEach(b=>b.onclick=()=>{const i=+b.dataset.dn;[orden[i+1],orden[i]]=[orden[i],orden[i+1]];pintarVistas()});
   $("#v-lista").querySelectorAll("[data-ed]").forEach(b=>b.onclick=()=>abrirEditor(b.dataset.ed));
 }
-const A_EN={nombre:"name",n:"count",pistas:"tracks",albumes:"albums","año":"year","años":"years","año_edicion":"release_year",artista:"artist",calidad:"quality",formato:"format",genero:"genre"};
+const A_EN={nombre:"name",n:"count",pistas:"tracks",albumes:"albums","año":"year","años":"years","año_edicion":"release_year",artista:"artist",calidad:"quality",formato:"format",genero:"genre",titulo:"title",numero:"track",disco:"disc"};
 const locPlant=tp=>LANG==="es"?tp:tp.replace(/\{([^{}]+)\}/g,(m,k)=>"{"+(A_EN[k]||k)+"}");
 function prepPlant(id,clave){const sel=$("#pls-"+id),inp=$("#pl-"+id);
   const opts=PLANTS[id].map(locPlant);sel.innerHTML=opts.map(o=>`<option value="${h(o)}">${h(plantilla(o,EJ[id]))}</option>`).join("")+`<option value="">${t("pl.custom")}</option>`;
   const pintar=()=>{sel.value=opts.includes(inp.value)?inp.value:"";$("#ej-"+id).innerHTML=`${t("pl.ej")} <b>${h(plantilla(inp.value,EJ[id]))}</b>`};
   sel.onchange=()=>{if(sel.value)inp.value=sel.value;pintar();if(!sel.value)inp.focus()};inp.oninput=pintar;
-  inp.value=locPlant(cfg.vistas.plantillas[clave]);pintar()}
+  inp.value=locPlant(cfg.vistas.plantillas[clave]||PLANTS[id][0]);pintar()}
 function cargarNav(){
   $("#v-carp").checked=cfg.musica.agrupar_carpetas;$("#f-orden").value=cfg.musica.ordenar_por_tags_hasta;
   $("#v-agr").value=cfg.vistas.agrupar_desde||200;$("#v-modo").value=cfg.vistas.agrupar_letras?"letras":"lista";
   const modo=()=>{$("#v-agr-c").style.visibility=$("#v-modo").value==="letras"?"visible":"hidden"};$("#v-modo").onchange=modo;modo();
   $("#v-conteo").value=cfg.vistas.tipo_conteo||"pistas";
-  prepPlant("raiz","raiz");prepPlant("cont","contenedor");prepPlant("album","album");
+  prepPlant("raiz","raiz");prepPlant("cont","contenedor");prepPlant("album","album");prepPlant("pista","pista");
+  $("#v-alpista").checked=!!cfg.vistas.album_en_pistas;$("#v-carpig").checked=cfg.vistas.carpeta_en_iguales!==false;$("#v-tart").value=cfg.vistas.tags_artista||"";$("#v-taart").value=cfg.vistas.tags_artista_album||"";
   $("#pl-campos").innerHTML=t("pl.campos");
   $("#c-pista").checked=cfg.portadas.por_pista;$("#c-sub").checked=cfg.portadas.subcarpetas;$("#c-art").checked=cfg.portadas.artista;
   $("#f-tam").value=cfg.portadas.tamano;$("#f-crop").checked=cfg.portadas.recortar_cuadrado;
@@ -4862,7 +5027,8 @@ function leerNav(n){
   n.musica.agrupar_carpetas=$("#v-carp").checked;n.musica.ordenar_por_tags_hasta=+$("#f-orden").value;
   if(navListo)n.vistas.activas=orden.filter(k=>marcadas.has(k));
   n.vistas.agrupar_letras=$("#v-modo").value==="letras";n.vistas.agrupar_desde=Math.max(1,+$("#v-agr").value||200);n.vistas.tipo_conteo=$("#v-conteo").value;
-  n.vistas.plantillas={raiz:$("#pl-raiz").value,contenedor:$("#pl-cont").value,album:$("#pl-album").value};
+  n.vistas.plantillas={raiz:$("#pl-raiz").value,contenedor:$("#pl-cont").value,album:$("#pl-album").value,pista:$("#pl-pista").value};
+  n.vistas.album_en_pistas=$("#v-alpista").checked;n.vistas.carpeta_en_iguales=$("#v-carpig").checked;n.vistas.tags_artista=$("#v-tart").value;n.vistas.tags_artista_album=$("#v-taart").value;
   n.portadas.por_pista=$("#c-pista").checked;n.portadas.subcarpetas=$("#c-sub").checked;n.portadas.artista=$("#c-art").checked;
   n.portadas.tamano=+$("#f-tam").value;n.portadas.recortar_cuadrado=$("#f-crop").checked;return n}
 async function cargarTags(){try{catTags=await api("/api/tags");pintarVistasForzar()}catch(e){}}
@@ -4999,6 +5165,13 @@ $("#f-guardar").onclick=()=>{const n=structuredClone(cfg);
   n.precarga.repetir_horas=+$("#p-horas").value;n.precarga.portadas=$("#p-port").checked;n.musica.ignorar=$("#f-ign").value.split("\n").map(s=>s.trim()).filter(Boolean);
   guardar(n,"#f-msg")};
 $("#m-cache").onclick=async()=>{const r=await post("/api/limpiar-cache");msg("#m-msg",r.ok?t("cacheBorrada",{n:nf(r.portadas)}):t("error"),r.ok);estado()};
+$("#m-exp").onclick=async()=>{const c=await api("/api/config");const b=new Blob([JSON.stringify(c,null,2)],{type:"application/json"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=`supavic-settings-${new Date().toISOString().slice(0,10)}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),2000)};
+$("#m-imp").onclick=()=>$("#m-imp-f").click();
+$("#m-imp-f").onchange=async e=>{const f=e.target.files[0];e.target.value="";if(!f)return;let d;
+  try{d=JSON.parse(await f.text());if(!d||typeof d!=="object"||!d.musica||!d.vistas)throw 0}catch(_){msg("#m-imsg",t("import.mal"),false);return}
+  const n=structuredClone(d);n.servidor=Object.assign({},n.servidor||{},{puerto:cfg.servidor.puerto});n.cache=Object.assign({},n.cache||{},{directorio:cfg.cache.directorio});
+  guardar(n,"#m-imsg")};
 $("#m-reini").onclick=async()=>{await post("/api/reiniciar");msg("#m-msg",t("reiniciando"),true);setTimeout(()=>location.reload(),3500)};
 
 async function explorarA(ruta){

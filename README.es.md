@@ -171,9 +171,10 @@ SupaVic (PC de la sala)
   calidad, resolución, formato, mes agregado), agrega un filtro opcional ("género contiene jazz", "source es
   vinyl", "año ≥ 1990") y ve una vista previa con conteos antes de guardar. Al final siempre van álbumes y pistas.
 - **Títulos a tu gusto** con plantillas como `{album} [{año}]`, `{año} - {album}`, `{album} [{año}] {calidad}`
-  (→ `Kind of Blue [1959] 24/96`), `{album} [{años}] • {version}` (→ `A Night at the Opera [1975/2005] • 30th
+  (→ `Kind of Blue [1959] 24/96`), `{album} [{años}]< • {version}>` (→ `A Night at the Opera [1975/2005] • 30th
   Anniversary`: año original/de edición, uno solo si coinciden) o `{nombre} ({n})`, con formatos listos para
-  elegir. La fecha de la edición también va en `dc:date` para que las apps puedan ordenar por ella. Si un dato no existe,
+  elegir. Lo que pongas entre `<…>` solo aparece si algún campo de adentro tiene valor:
+  `{album}< • {version}>< ({remasterdate} Remaster)>`. Los títulos de pistas tienen su propia plantilla. La fecha de la edición también va en `dc:date` para que las apps puedan ordenar por ella. Si un dato no existe,
   desaparece junto con sus paréntesis. Cualquier tag sirve como campo (`{label}`, `{composer}`…).
 - **▶ Todas las pistas** en cada nivel que lista contenedores, en orden y sin duplicados.
 - **Búsqueda UPnP** por título, artista, álbum y género.
@@ -280,6 +281,10 @@ La tabla con todas las claves está en el [README en inglés](README.md#configur
 | `servidor.ip` | vacío | Vacío = anunciar en todas las interfaces. Pon una IP para usar solo esa |
 | `servidor.idioma` | `auto` | `auto`, `es` o `en` |
 | `musica.carpetas` | `[]` | Tus carpetas de música |
+| `vistas.plantillas.pista` | `{titulo}` | Formato del título de las pistas (`{titulo} ({subtitle})`, `{numero}. {titulo}`…) |
+| `vistas.album_en_pistas` | `false` | Las pistas muestran su álbum con el formato de álbumes |
+| `vistas.carpeta_en_iguales` | `true` | Agregar el nombre de la carpeta si dos álbumes se verían con el mismo título |
+| `vistas.tags_artista` / `tags_artista_album` | `display artist, …` | Tags con el nombre de artista acreditado que se muestra (Picard `DISPLAY ARTIST`); vacío = `ARTIST` |
 | `musica.sin_indexar` | `[]` | Carpetas de `musica.carpetas` que quedan fuera de las vistas por etiquetas y la búsqueda (**Indexar tags** desmarcado); se siguen navegando |
 | `cache.directorio` | vacío | Carpeta de caché (vacío = `datos\` en la carpeta de datos) |
 | `precarga.inactividad_min` | `5` | Minutos sin navegación antes de precargar |

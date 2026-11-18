@@ -2,6 +2,45 @@
 
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.6.0] - 2026-11-05
+
+Thanks again to **simbun** for another round of detailed feedback: everything in this release comes from it.
+
+### Added
+- **Track title format** in **Browsing → How titles look**, like the ones for albums and containers:
+  `{title} ({subtitle})`, `{title} ({version})`, `{track}. {title}`… Fields: `{title}` `{track}` `{disc}`
+  `{artist}` `{album}` `{year}` and any tag in your files. As everywhere, text around an empty field disappears,
+  so `{title} ({subtitle})` shows no brackets on tracks without a subtitle.
+- **Tracks can show their album with your album format** (option under the title formats), for control points
+  that show the album on each track, like BubbleUPnP and upplay: "Peter Gabriel [1977]" instead of "Peter Gabriel".
+  Off by default, since some players group tracks by that text.
+- **Artist name as printed on the release.** If your files carry the credited name, as MusicBrainz Picard writes it
+  (`DISPLAY ARTIST`, `DISPLAY ALBUMARTIST`, also `ARTIST DISPLAY` / `ARTIST LABEL`), that's what tracks and albums
+  show, while the Artists lists keep using each artist separately (`ARTIST`/`ARTISTS`). Which tags to look for can
+  be changed in **Browsing**; leave them empty to always show `ARTIST`.
+- **Optional parts in title formats with `<…>`**: whatever is inside only shows when at least one field in it
+  has a value, so separators and words around a missing tag go away too:
+  `{album}< • {version}>< ({remasterdate} Remaster)>` → "Queen • Deluxe Edition (2011 Remaster)", or just "Queen".
+- **Option to never add the folder name** to albums that would show the same title (on by default).
+- **Export / import settings** in **Settings → Maintenance**: save everything (folders, views, title formats…) to
+  a file and load it in another install. Importing keeps that install's port and cache folder, so you can test a
+  new version side by side.
+
+### Changed
+- **The folder name is only added to an album's title when it's really needed.** Two albums with the same title
+  and artist used to always get " · <folder>". Now it's only added when your title format would still show them
+  the same: four self-titled "Peter Gabriel" albums show as "Peter Gabriel [1977]", "[1978]"… and two "21 [2011]"
+  editions still show their folder. Any field in your format counts, including your own tags like `{nickname}`.
+- Up to 40 extra tags per track are kept (was 24), so heavily tagged files (e.g. from Picard with full credits)
+  don't lose tags like `DISPLAY ARTIST`.
+
+### Fixed
+- The `{album} [{years}] • {version}` preset no longer leaves a loose "•" when there is no version. It is now
+  `{album} [{years}]< • {version}>` and saved settings using the old one are updated automatically.
+- Two different files with the same name, size and modification time (batch copies, or USB drives in FAT/exFAT,
+  which only keep the time to 2 seconds) could end up showing each other's tags, as if one had been moved. Now a
+  file only counts as moved when its old location no longer exists.
+
 ## [1.5.0] - 2026-11-03
 
 ### Added

@@ -43,8 +43,13 @@ Ahí van `config.json` y `datos/` (log, pid, eventos, historial y, si `cache.dir
   del índice `vals[nivel][pista]` (tuplas compartidas, memo por dato crudo) e `inv0`; los nodos se cachean en `_x_cache`.
   Niveles calculados: `NIVELES_CALC` (`albumartist`, `#decada`, `#calidad`…); el resto son tags extra (`m["x"]`), y solo
   se cargan en memoria los que usan las vistas activas o las plantillas (`claves_x_necesarias`).
-- Títulos: `plantilla()` (compilada y cacheada) con `vistas.plantillas` (`raiz`, `contenedor`, `album`); `Indice.nc()` /
-  `Indice.na()`. Campos en español o inglés (`_ALIAS_CAMPO`).
+- Títulos: `plantilla()` (compilada y cacheada) con `vistas.plantillas` (`raiz`, `contenedor`, `album`, `pista`);
+  `Indice.nc()` / `Indice.na()`; la de pista en `_item` (se salta si es `{titulo}`). Campos en español o inglés
+  (`_ALIAS_CAMPO`). `vistas.album_en_pistas` → `Indice.titulo_album_pista` (memo por álbum + `bib.cfg_gen`).
+  Grupos opcionales `<…>` en `plantilla()` (`_compilar_grupos`, campo interno `\x01gN`); mismo algoritmo en el JS del panel.
+  `vistas.carpeta_en_iguales` controla el " · carpeta" de `na()`.
+  Artista mostrado: `tag_mostrado(x, lista_tags(vistas.tags_artista[_album]))`, si no ARTIST; los índices no cambian.
+  " · carpeta" (`disamb`): solo si `na()` sin conteos sale igual que otro álbum de su grupo `iguales`.
 - Álbum = (album, albumartist) o (album, carpeta) sin albumartist; si el mismo par aparece en varias carpetas
   (sin contar subcarpetas `CD1`/`Disc 2`) se separa por carpeta. IDs iguales que antes si no hay homónimos.
 - `VERSION_LECTOR` (PRAGMA user_version de cache.db, hoy 3): súbelo si cambia lo que se extrae de los tags; la caché de

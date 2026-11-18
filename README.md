@@ -171,9 +171,10 @@ SupaVic (Living room PC)
   quality, resolution, format, month added), add an optional filter ("genre contains jazz", "source is vinyl",
   "year ≥ 1990"), and see a live preview with counts before saving. Albums and tracks always come last.
 - **Your titles, your way**: templates such as `{album} [{year}]`, `{year} - {album}`,
-  `{album} [{year}] {quality}` (→ `Kind of Blue [1959] 24/96`), `{album} [{years}] • {version}`
+  `{album} [{year}] {quality}` (→ `Kind of Blue [1959] 24/96`), `{album} [{years}]< • {version}>`
   (→ `A Night at the Opera [1975/2005] • 30th Anniversary`: original/release year, one if they match) or
-  `{name} ({count})`, with presets to pick from. The release date also goes in `dc:date` so apps can sort by it.
+  `{name} ({count})`, with presets to pick from. Wrap any text in `<…>` to show it only when a field inside
+  has a value: `{album}< • {version}>< ({remasterdate} Remaster)>`. Track titles have their own template. The release date also goes in `dc:date` so apps can sort by it.
   Empty values vanish along with their brackets. Any tag works as a field (`{label}`, `{composer}`…).
 - **▶ All tracks** at every level that lists containers, in browse order with no duplicates.
 - **UPnP Search** across title, artist, album and genre.
@@ -277,6 +278,10 @@ Everything is editable in the control panel (**Settings**). It's stored in `conf
 | `servidor.abrir_navegador` | `true` | Open the panel when you start the app yourself (never at Windows sign-in) |
 | `servidor.buscar_actualizaciones` | `true` | The panel tells you about new versions (your browser asks GitHub; the server never goes online) |
 | `musica.carpetas` | `[]` | Your music folders. With a single folder, its subfolders show at the root |
+| `vistas.plantillas.pista` | `{title}` | Track title format (`{title} ({subtitle})`, `{track}. {title}`…) |
+| `vistas.album_en_pistas` | `false` | Tracks show their album with the album title format |
+| `vistas.carpeta_en_iguales` | `true` | Add the folder name when two albums would show the same title |
+| `vistas.tags_artista` / `tags_artista_album` | `display artist, …` | Tags with the credited artist name to show (Picard `DISPLAY ARTIST`); empty = `ARTIST` |
 | `musica.sin_indexar` | `[]` | Folders from `musica.carpetas` left out of the tag views and search (**Index tags** unticked); still browsable |
 | `musica.ignorar` | `*.part`, `.*`, … | Name patterns to hide (case-insensitive) |
 | `musica.ordenar_por_tags_hasta` | `150` | Folders with up to this many files are sorted by disc/track number |
