@@ -154,7 +154,8 @@ SupaVic (PC de la sala)
 ├── Calidad          → DSD / Hi-Res / CD / comprimido → artistas → álbumes
 ├── Agregados recientemente → los 200 álbumes más nuevos (por ENCODINGTIME o la fecha en que llegó el archivo)
 ├── Tocadas recientemente → las últimas 100 · Más tocadas → tus 100 favoritas · Modificados recientemente
-├── Hi-Res · Décadas · Aleatorio · Artistas (por pista)
+├── Hi-Res · Décadas · Aleatorio · Artistas (por pista) · Favoritas (★★★★+)
+├── Playlists        → tus .m3u / .m3u8 / .pls con su portada · » Por álbum
 └── Tus propias vistas → p. ej. Género › Compositor › álbumes, solo vinilos, solo 24 bits…
 ```
 
@@ -176,8 +177,27 @@ SupaVic (PC de la sala)
   elegir. Lo que pongas entre `<…>` solo aparece si algún campo de adentro tiene valor:
   `{album}< • {version}>< ({remasterdate} Remaster)>`. Los títulos de pistas tienen su propia plantilla. La fecha de la edición también va en `dc:date` para que las apps puedan ordenar por ella. Si un dato no existe,
   desaparece junto con sus paréntesis. Cualquier tag sirve como campo (`{label}`, `{composer}`…).
+- **Playlists**: los archivos `.m3u`, `.m3u8` y `.pls` de tus carpetas de música aparecen en su carpeta y en la
+  vista **Playlists**, con su propia portada (`Favoritos.jpg` junto a `Favoritos.m3u8`, o la de su primera pista).
+  Sirven rutas relativas y absolutas, incluso playlists hechas en otra computadora (una de Windows con
+  `D:\Música\…` usada desde Docker o con otra letra de unidad). Cada playlist empieza con **» Por álbum**: una
+  playlist de "500 mejores álbumes" se navega como 500 álbumes, en el orden de la playlist. Play sigue tocando
+  cada pista una sola vez.
+- **Álbumes de varios discos** (opción): una carpeta **» subtítulo del disco** antes de cada disco, al estilo
+  MinimServer, con su propia portada (`Supersonic.jpg` para `DISCSUBTITLE=Supersonic`): el álbum se sigue tocando
+  completo y cada disco se puede abrir o encolar solo. Otra opción numera las pistas seguido (1…N) para
+  reproductores que mezclan los discos.
+- **Álbumes ordenados por fecha original completa**: dos álbumes del mismo año siguen `originaldate`
+  (Sgt. Pepper's, 1967-06-01, antes que Magical Mystery Tour, 1967-11-27).
+- **Décadas de cualquier tag de fecha**: `.decade` (o `.year`) funciona con cualquier fecha, en los formatos de
+  título (`{originaldate.decade}` → 1960s) y como nivel de una vista personalizada (`originalrecordingdate` por
+  década).
 - **▶ Todas las pistas** en cada nivel que lista contenedores, en orden y sin duplicados.
-- **Búsqueda UPnP** por título, artista, álbum y género.
+- **Favoritas**: las pistas con 4 o 5 estrellas (`RATING` / `FMPS_RATING`, cualquier escala); aparece si hay alguna.
+- **Playlists para presets**: `http://<servidor>:8200/pl/aleatorio.m3u8` (también `favoritas`, `recientes`,
+  `tocadas`, `mas_tocadas`, `hires`) para guardarla como preset en el WiiM; "aleatorio" cambia cada vez.
+- **Búsqueda UPnP completa**: `and`/`or`, todos los operadores, pistas/álbumes/artistas/géneros, dentro de la
+  carpeta o vista donde buscas, ordenada como la pide el reproductor y sin tope de resultados.
 - **IDs estables**: los favoritos y presets de tu reproductor siguen funcionando tras reinicios, actualizaciones y
   reinstalaciones.
 
@@ -209,12 +229,18 @@ SupaVic (PC de la sala)
   nombres sacados de la ruta (`Artista/[Año] Álbum/NN. Título`) y se termina en segundo plano.
 - **Precarga en reposo**: tras 5 minutos sin navegación, recorre la biblioteca y guarda en caché tags y portadas.
   Se pausa en cuanto alguien navega o reproduce, y limpia las entradas de archivos borrados.
+- **Música nueva en minutos**: cada 10 minutos más o menos (menos seguido si el recorrido es lento, como en un NAS),
+  una revisión ligera compara cada carpeta con lo que tenía y lee solo lo nuevo o cambiado, aunque esté sonando música.
+- **Portadas un nivel adelante**: al abrir un artista, género, carpeta o playlist, se preparan en segundo plano las
+  portadas y pistas de lo que vas a abrir. Nunca en la primera pantalla; le cede el paso a lo que navegas.
+- **Actualizar nunca vacía la caché**: si una versión nueva lee más de tus tags, se releen en segundo plano y todo
+  sigue funcionando mientras tanto.
 - La caché sobrevive a **mover o renombrar carpetas**: los archivos se reconocen por nombre, tamaño y fecha.
 - La caché puede vivir en otro disco, por ejemplo un SSD (`Ajustes → Carpeta de caché`).
 - **Primero lo que navegas**: el índice de tags se reconstruye solo cuando nadie está navegando, y si empiezas a
   navegar a mitad de una reconstrucción, esta se hace a un lado: abrir una carpeta sigue siendo instantáneo.
-- Probado con una biblioteca de 48,000 pistas: el índice de tags se arma en unos 2 segundos y las vistas
-  personalizadas responden en milisegundos una vez abiertas.
+- Probado con 100,000 pistas: el índice de tags se arma en unos 3.5 s y ocupa ~290 MB en total, y las páginas
+  responden en 1–6 ms.
 
 ### Panel de control y dashboard
 
@@ -224,7 +250,10 @@ SupaVic (PC de la sala)
 
 - **Panel de control**: estado, dispositivos conectados, progreso de la precarga, selector de carpetas, la página
   **Navegación** (vistas, formato de títulos, portadas y el editor de vistas; [captura completa](docs/img/panel-browsing-es.png)),
-  todos los ajustes, herramientas de caché y el log. Cada opción trae una explicación corta.
+  todos los ajustes, herramientas de caché, un **diagnóstico de la biblioteca** (álbumes partidos, repetidos, pistas
+  faltantes, sin portada, sin tags o ilegibles) y el log. Cada opción trae una explicación corta.
+- **Contraseña opcional** para el panel y el dashboard (nunca se pide en la computadora del servidor; los
+  reproductores no la necesitan). ¿La olvidaste? Borra `datos/clave.txt`.
 - **Dashboard**: qué está sonando ahora en cada reproductor (formato, posición, volumen), el historial de escucha
   (pistas escuchadas más de 10 s), la actividad en vivo, las transferencias del servidor y estadísticas de 14 y 30 días.
   Corre como un proceso aparte, así que puedes reiniciarlo sin tocar el servidor.
@@ -235,7 +264,7 @@ SupaVic (PC de la sala)
 
 - Icono en la bandeja, inicio con Windows e instancia única: si lo abres otra vez, solo abre el panel.
 - Versiones con instalador y portable, compiladas por GitHub Actions en cada release.
-- La regla del firewall solo permite **tu subred local**. Los ajustes solo se pueden cambiar desde IPs privadas.
+- La regla del firewall solo permite **tu subred local**. Los ajustes solo se pueden cambiar desde IPs privadas, y solo desde el propio panel (otras páginas web no le pueden mandar peticiones).
   Nada sale de tu red: sin telemetría y sin nube.
 
 ## Cómo funciona
@@ -284,6 +313,8 @@ La tabla con todas las claves está en el [README en inglés](README.md#configur
 | `vistas.plantillas.pista` | `{titulo}` | Formato del título de las pistas (`{titulo} ({subtitle})`, `{numero}. {titulo}`…) |
 | `vistas.album_en_pistas` | `false` | Las pistas muestran su álbum con el formato de álbumes |
 | `vistas.carpeta_en_iguales` | `true` | Agregar el nombre de la carpeta si dos álbumes se verían con el mismo título |
+| `vistas.discos` | `false` | Álbumes de varios discos: una carpeta "» subtítulo" antes de cada disco |
+| `vistas.numeracion_seguida` | `false` | Álbumes de varios discos: numerar las pistas 1…N seguido |
 | `vistas.tags_artista` / `tags_artista_album` | `display artist, …` | Tags con el nombre de artista acreditado que se muestra (Picard `DISPLAY ARTIST`); vacío = `ARTIST` |
 | `musica.sin_indexar` | `[]` | Carpetas de `musica.carpetas` que quedan fuera de las vistas por etiquetas y la búsqueda (**Indexar tags** desmarcado); se siguen navegando |
 | `cache.directorio` | vacío | Carpeta de caché (vacío = `datos\` en la carpeta de datos) |

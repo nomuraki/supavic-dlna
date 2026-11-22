@@ -48,6 +48,40 @@ Ahí van `config.json` y `datos/` (log, pid, eventos, historial y, si `cache.dir
   (`_ALIAS_CAMPO`). `vistas.album_en_pistas` → `Indice.titulo_album_pista` (memo por álbum + `bib.cfg_gen`).
   Grupos opcionales `<…>` en `plantilla()` (`_compilar_grupos`, campo interno `\x01gN`); mismo algoritmo en el JS del panel.
   `vistas.carpeta_en_iguales` controla el " · carpeta" de `na()`.
+- Caché de tags: columna `v` = versión del lector con que se leyó la fila. Subir `VERSION_LECTOR` NO vacía la caché:
+  `Precargador._actualizar_lector` relee en lotes (`CacheTags.actualizar_lote`) cuando nadie navega ni reproduce, y el
+  índice reutiliza lo ya parseado solo si coincide `(mtime, tam, v)`. Para agregar un campo nuevo a los tags: extraerlo
+  en `_meta_de_tags` / `leer_tags`, sumarlo a `conservar` en `_construir` y subir `VERSION_LECTOR` (comentario con qué cambió).
+- `"of"` = fecha original completa (1967-06-01); los álbumes del mismo año se ordenan por ella (`por_anio`).
+- Modificadores `.decade` / `.year` (`partir_mod`, `aplicar_mod`): en plantillas (`_rellenar`) y niveles de vistas
+  (`_crudo`/`_de_crudo`). Campos de álbum `{fecha}` (`date`) y `{fecha_original}` (`originaldate`).
+- Discos: opción `vistas.discos`. `_pistas_album()` intercala contenedores `<oid del álbum>:d:N` (sirve para `v:al`,
+  `v:ia:…:al` y vistas personalizadas); `_disco()` los resuelve desde la lista del álbum. `_RE_OID_DISCO`. El childCount
+  del álbum cuenta los discos (`_n_hijos_album`). `vistas.numeracion_seguida` -> `numero_seguido()` en `_item`.
+- Playlists: clase `Playlists` (`app.playlists`). Registro en la tabla `playlists` de cache.db, alimentado por
+  `Biblioteca.listar` (4.º elemento del listado = playlists). OIDs `v:playlists`, `v:pl:<raíz>:<rel>`,
+  `v:pla:<raíz>:<rel>` (por álbum), `v:plal:<grupo>:<raíz>:<rel>`; portada `/art/p/<raíz>/<rel>.jpg`. Resolución:
+  índice (`Indice.pista_por_ruta`) › caché de tags en lote › stat; prefijos de otra máquina aprendidos por playlist.
+- Vistas nuevas de una versión: agregarlas a `VISTAS_NUEVAS`; `vistas.conocidas` hace que se activen una sola vez.
+- `cargar_config()` pasa el config por `validar_config()` al arrancar (si hay errores, se usa tal cual).
+- 2.0 — índice compacto: `Pista` y `TagsPista` son `_Registro` con `__slots__` (se usan como dict: get/[]/in/keys).
+  Dentro de `_construir` usar atributos (`p.m`, `getattr(m, "k", None)`) por velocidad. La reconstrucción reutiliza
+  los tags de las pistas del índice publicado (`prev` por `(key, rel)` si `(mt, tam, v)` no cambió y `d["firma"]` igual).
+  `self._dirs`: firma por carpeta `(mtime, hash(frozenset(nombre->(mtime,tam))))`; la fecha de creación ya va en `p.ag`.
+  `Indice.gen` (y `d["gen"]`) = generación del índice: llave de cachés (nunca `id(d)`, que se repite).
+- Búsqueda: `_parse_busqueda` (gramática CDS) -> `_compilar_busqueda` (por grupo: pista/album/artista/genero; lo que
+  no puede coincidir se pliega a False y no se recorre). `Indice.buscar(criterio, contenedor, orden)` con caché de 8.
+- Streaming: `connection.sendfile` por tramos de 4 MB; metadatos para el dashboard después del primer tramo.
+  `App.transfers` se toca solo con `transfer_lock`. Reproducciones: `Reproducciones.avance()` cuenta al 50% enviado.
+- Seguridad: `Handler.mismo_origen()` (POST JSON + Origin = Host) siempre; contraseña opcional en `datos/clave.txt`
+  (PBKDF2), cookie `supavic_s` = HMAC del hash (`token_sesion`); local (loopback) nunca la pide; rutas UPnP nunca.
+  `dashboard.py` repite `autorizado()` leyendo el mismo archivo.
+- Revisión ligera: `Precargador._revision_ligera` (firmas de listado por carpeta, `REVISION_MIN`, intervalo
+  adaptativo). Precarga de imágenes: `PrecargaImagenes` (nunca en la primera vista; cede ante peticiones reales).
+- `App.fuente_url_portada(resto)`: de '/art/...' a la fuente (servidor y precarga de imágenes).
+- Diagnóstico: `Indice.diagnostico()` (cache en `d["_diag"]`), `/api/diagnostico`, pestaña `t-diag`.
+- Favoritas: `estrellas()` normaliza RATING/FMPS_RATING; `d["favoritas"]`. Listas `.m3u8`: `Handler.enviar_m3u8`
+  (`/pl/<vista>.m3u8`, alias en inglés en `ALIAS_M3U8`).
   Artista mostrado: `tag_mostrado(x, lista_tags(vistas.tags_artista[_album]))`, si no ARTIST; los índices no cambian.
   " · carpeta" (`disamb`): solo si `na()` sin conteos sale igual que otro álbum de su grupo `iguales`.
 - Álbum = (album, albumartist) o (album, carpeta) sin albumartist; si el mismo par aparece en varias carpetas

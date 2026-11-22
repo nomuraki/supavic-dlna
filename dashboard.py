@@ -16,6 +16,9 @@ Uso:
   python dashboard.py -v         # log detallado
   python dashboard.py --ping     # sale con 0 si responde
 """
+import hashlib
+import hmac
+import ipaddress
 import json
 import logging
 import logging.handlers
@@ -56,8 +59,9 @@ RUTA_CONFIG = DIR_BASE / "config.json"
 RUTA_EVENTOS = DIR_DATOS / "eventos.jsonl"
 RUTA_HIST = DIR_DATOS / "historial.jsonl"
 RUTA_LOG = DIR_DATOS / "dashboard.log"
+RUTA_CLAVE = DIR_DATOS / "clave.txt"          # contraseña opcional del panel (la pone main.py)
 ES_WINDOWS = os.name == "nt"
-VERSION = "1.6.0"
+VERSION = "2.0.0"
 log = logging.getLogger("dashboard")
 
 NS_AVT = "urn:schemas-upnp-org:service:AVTransport:1"
@@ -685,9 +689,40 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def autorizado(self):
+        """Misma regla que el panel: sin contraseña o desde esta computadora, libre; si no, su cookie de sesión
+        (las cookies no distinguen puerto, así que la sesión del panel sirve aquí)."""
+        try:
+            clave = RUTA_CLAVE.read_text(encoding="ascii").strip()
+        except OSError:
+            return True
+        if not clave.startswith("pbkdf2_sha256$"):
+            return True
+        try:
+            if ipaddress.ip_address(self.client_address[0]).is_loopback:
+                return True
+        except ValueError:
+            pass
+        token = hmac.new(clave.encode("ascii"), b"supavic-sesion", hashlib.sha256).hexdigest()
+        for parte in (self.headers.get("Cookie") or "").split(";"):
+            k, _, v = parte.strip().partition("=")
+            if k == "supavic_s":
+                return hmac.compare_digest(v, token)
+        return False
+
     def do_GET(self):
         ruta = urlparse(self.path).path
         d = self.server.dash
+        if ruta != "/api/ping" and not self.autorizado():
+            host = (self.headers.get("Host") or "").rsplit(":", 1)[0] or "localhost"
+            if not re.fullmatch(r"[\w.\-\[\]:]{1,255}", host):
+                host = "localhost"
+            panel = f"http://{host}:{int(d.cfg['puerto_servidor'])}/"
+            if ruta.startswith("/api/"):
+                return self._send(401, '{"error": "auth"}', "application/json")
+            return self._send(200, f'<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
+                                   f'<p style="font:16px system-ui;margin:40px auto;max-width:360px;padding:0 16px">'
+                                   f'🔒 <a href="{panel}">{T("dash.login")}</a></p>', "text/html; charset=utf-8")
         if ruta in ("/", "/index.html"):
             return self._send(200, DASH_HTML.replace("__LANG__", i18n.LANG), "text/html; charset=utf-8")
         if ruta == "/api/estado":

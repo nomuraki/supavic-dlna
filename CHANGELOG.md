@@ -2,6 +2,83 @@
 
 All notable changes to this project are documented here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] - 2026-11-22
+
+A major overhaul: faster, lighter, safer and more complete, without making it any harder to use. Several ideas
+come from **simbun**'s feedback and sample files, thanks! Nothing has to be set up again: your settings, play
+history and covers carry over.
+
+### Highlights
+- 🧠 **~30% less memory** and a faster tag index: 100,000 tracks went from 405 MB to 290 MB, and the index builds
+  in 3.4 s instead of 4.1 s. Browsing is as instant as before.
+- 🆕 **New music shows up in minutes**, even while you listen: a light check compares each folder with what it
+  had last time and only reads new or changed files (~0.1 s for 12,000 tracks).
+- 📜 **Playlists**, 📀 **disc folders for box sets**, ⭐ **Favourites**, 🩺 **library health check**,
+  🔎 **full UPnP search**, 🔒 **optional panel password**.
+
+### Added
+- **Playlists.** `.m3u`, `.m3u8` and `.pls` files in your music folders show up in their folder and in a new
+  **Playlists** view (only shown when there is one). Each one has its own artwork: an image with the same name
+  (`Favourites.jpg` next to `Favourites.m3u8`), or its first track's.
+  - Relative and absolute paths, `file://` URLs, UTF-8 or Windows (ANSI) encoding. Playlists made on another
+    computer work too: a Windows playlist with `D:\Music\…` paths used from Docker or Linux, or after changing
+    the drive letter, is matched to your folders automatically.
+  - **» By album** at the top of each playlist: a "500 Greatest Albums" playlist can be browsed as 500 albums, in
+    the playlist's order. Pressing Play on the playlist still plays each track once.
+  - Fast with big playlists: 6,000 tracks resolve in well under 0.1 s, and the file is only read again when it
+    changes.
+- **Playlists for presets**: `/pl/random.m3u8`-style addresses (`/pl/aleatorio.m3u8` in Spanish) (random, favourites, recently added, recently
+  played, most played, Hi-Res) to save as presets on the WiiM or any player that takes playlists by URL, with
+  `#EXTINF` titles. "Random" brings 100 different tracks every time. Listed in **Browsing**, with copy buttons.
+- **Disc folders for multi-disc albums** (option): a **» subtitle** folder before each disc, like MinimServer,
+  using `DISCSUBTITLE` ("» Disc 2" without one) and its artwork (`Supersonic.jpg`). The album still plays whole
+  and each disc can be opened or queued on its own. Works in every view, custom ones included.
+- **Straight-through track numbers for multi-disc albums** (option): 1…N across the whole album instead of
+  starting again on each disc, for control points that mix discs up when sorting (mconnect, for example).
+- **Favourites** view: tracks with 4 or 5 stars from `RATING` or `FMPS_RATING` tags (Picard, foobar2000,
+  MediaMonkey…), any scale (1–5, 0–100, 0–1…). Only shown when there is one. MP3 ratings stored only in the
+  binary `POPM` frame are not read.
+- **Library health check** (new **Health check** tab): albums split by mismatched album artists, repeated albums,
+  missing track numbers, albums without artwork, tracks without tags and files that can't be read (damaged or
+  incomplete downloads). Uses what the index already knows, no extra reading.
+- **Full UPnP search**: `and` / `or` / brackets and every operator (`=`, `!=`, `contains`, `doesNotContain`,
+  `derivedfrom`, `exists`, `<`, `>`…), returning tracks, albums, artists or genres as asked, inside the folder or
+  view being searched (`ContainerID`), sorted as requested (`SortCriteria`) and with no 500-result cap.
+- **Decades from any date tag**: add `.decade` (or `.year`) to any date, in title formats
+  (`{originaldate.decade}` → "1960s") and as a custom view level or filter (date tags like
+  `originalrecordingdate` are offered "by decade" in the view editor).
+- New title format fields: `{originaldate}` (full original date) and `{date}` (this release's date).
+- **Optional panel password** (**Settings → Maintenance**). Never asked on the computer running SupaVic, and
+  players don't need it. The dashboard uses the same login. Forgot it? Delete `datos/clave.txt`.
+- **Covers one level ahead**: when you open an artist (or a genre, a folder, a playlist…), the covers and tracks
+  you're about to see are prepared in the background, so opening an album is instant. Never on the first screen,
+  it gives way to anything you're browsing, and it stops as soon as you go somewhere else.
+- `.webp` images as folder covers.
+
+### Changed
+- **Albums from the same year are sorted by full original date**, not by title: Sgt. Pepper's (1967-06-01) now
+  comes before Magical Mystery Tour (1967-11-27).
+- **Updating no longer empties the tag cache.** When a new version reads more from your tags (this one does, for
+  the full original date), tracks are read again in the background and everything keeps working with the old
+  data meanwhile. Before, a big library had empty tag views until it was read again from scratch.
+- **Play counts are more faithful**: a play counts once half the file has been sent (adding up seeks), so skipped
+  tracks and the next track the player fetches early for gapless don't count. Replaying a song counts again, and
+  moving or renaming a file keeps its history.
+- **Music starts sooner**: the first bytes go out before anything else, and files are sent with the operating
+  system's zero-copy `sendfile` (less CPU on a NAS or a Raspberry Pi).
+- The panel only accepts changes coming from itself (protection against other web pages sending requests to it).
+- `config.json` is checked and tidied when the server starts, the same way as when saving from the panel (hand
+  edits, old formats). If something doesn't pass, it's used as is and the log says why.
+- New views from an update show up once in your view list; if you remove them, they stay removed.
+
+### Fixed
+- Folders, genres and decades told players they had one item less than they list (the "▶ All tracks" entry
+  wasn't counted). Players that trust that number could leave the last item out.
+- A counter of active streams wasn't safe with several connections at once and could get stuck, stopping the
+  background reading for good.
+- Lists cached for browsing could, in rare cases, be served from the previous index right after a rebuild.
+- A player closing a connection no longer fills the log with error traces.
+
 ## [1.6.0] - 2026-11-05
 
 Thanks again to **simbun** for another round of detailed feedback: everything in this release comes from it.

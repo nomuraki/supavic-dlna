@@ -153,7 +153,8 @@ SupaVic (Living room PC)
 ├── Quality          → DSD / Hi-Res / CD / compressed → artists → albums
 ├── Recently added   → newest 200 albums (by ENCODINGTIME or the date the file reached your disk)
 ├── Recently played  → the last 100 tracks played · Most played → your top 100 · Recently modified
-├── Hi-Res · Decades · Random · Track artists
+├── Hi-Res · Decades · Random · Track artists · Favourites (★★★★+)
+├── Playlists        → your .m3u / .m3u8 / .pls with their artwork · » By album
 └── Your own views   → e.g. Genre › Composer › albums, only vinyl rips, only 24-bit…
 ```
 
@@ -176,8 +177,25 @@ SupaVic (Living room PC)
   `{name} ({count})`, with presets to pick from. Wrap any text in `<…>` to show it only when a field inside
   has a value: `{album}< • {version}>< ({remasterdate} Remaster)>`. Track titles have their own template. The release date also goes in `dc:date` so apps can sort by it.
   Empty values vanish along with their brackets. Any tag works as a field (`{label}`, `{composer}`…).
+- **Playlists**: `.m3u`, `.m3u8` and `.pls` files in your music folders show up in their folder and in a
+  **Playlists** view, with their own artwork (`Favourites.jpg` next to `Favourites.m3u8`, or the first track's).
+  Relative and absolute paths both work, including playlists made on another computer (a Windows `D:\Music\…`
+  playlist used from Docker or with another drive letter). Each playlist starts with **» By album**: a
+  "500 Greatest Albums" playlist can be browsed as 500 albums, in the playlist's order. Play still plays the
+  tracks once each.
+- **Multi-disc albums** (option): a **» Disc subtitle** folder before each disc, MinimServer style, with its own
+  artwork (`Supersonic.jpg` for `DISCSUBTITLE=Supersonic`): the album still plays whole, and each disc can be
+  opened or queued by itself. Another option numbers tracks straight through (1…N) for players that mix discs up.
+- **Albums sorted by full original date**: two albums from the same year follow `originaldate`
+  (Sgt. Pepper's, 1967-06-01, before Magical Mystery Tour, 1967-11-27).
+- **Decades from any date tag**: `.decade` (or `.year`) works on any date, in title formats
+  (`{originaldate.decade}` → 1960s) and as a custom view level (`originalrecordingdate` by decade).
 - **▶ All tracks** at every level that lists containers, in browse order with no duplicates.
-- **UPnP Search** across title, artist, album and genre.
+- **Favourites**: tracks rated 4–5 stars (`RATING` / `FMPS_RATING`, any scale), shown when there are some.
+- **Playlists for presets**: `http://<server>:8200/pl/random.m3u8` (also `favourites`, `recent`, `played`,
+  `most-played`, `hires`) to save as a preset on the WiiM; "random" is different every time.
+- **Full UPnP Search**: `and`/`or`, every operator, tracks/albums/artists/genres, scoped to the folder or view
+  you're in, sorted as the player asks, no result cap.
 - **Stable IDs**: favorites and presets on your player keep working after restarts, updates and reinstalls.
 
 ### Audio and artwork
@@ -207,12 +225,18 @@ SupaVic (Living room PC)
   names taken from the path (`Artist/[Year] Album/NN. Title`) and finished in the background.
 - **Idle prefetch**: after 5 minutes without browsing, it walks the library and caches tags and covers. It
   pauses the moment someone browses or plays, and clears out entries for deleted files.
+- **New music in minutes**: every 10 minutes or so (less often if the walk is slow, like on a NAS), a light check
+  compares each folder with what it had before and reads only new or changed files, even while music plays.
+- **Covers one level ahead**: opening an artist, genre, folder or playlist prepares, in the background, the
+  covers and tracks of what you're about to open. Never on the first screen; it yields to anything you browse.
+- **Updates never empty the cache**: when a new version reads more from your tags, files are re-read in the
+  background while everything keeps working.
 - The cache survives **moving or renaming folders**: files are matched by name, size and timestamp.
 - The cache can live on another drive, such as an SSD (`Settings → Cache folder`).
 - **Browsing always comes first**: the tag index is rebuilt only when nobody is browsing, and if you start
   browsing mid-rebuild it steps aside, so opening a folder stays instant.
-- Tested with a 48,000-track library: the tag index builds in about 2 seconds, and custom views answer in a few
-  milliseconds once opened.
+- Tested with 100,000 tracks: the tag index builds in about 3.5 s and takes ~290 MB in total, and pages
+  answer in 1–6 ms.
 
 ### Control panel and dashboard
 
@@ -222,7 +246,10 @@ SupaVic (Living room PC)
 
 - **Control panel**: status, connected devices, prefetch progress, folder picker, the **Browsing** page (views,
   title formats, covers and the custom view editor; [full screenshot](docs/img/panel-browsing-en.png)), every
-  setting, cache tools and the log. Every option has a one-line explanation.
+  setting, cache tools, a **library health check** (split albums, duplicates, missing tracks, no artwork,
+  untagged or unreadable files) and the log. Every option has a one-line explanation.
+- **Optional password** for the panel and dashboard (never asked on the server's own computer; players don't
+  need it). Forgot it? Delete `datos/clave.txt`.
 - **Dashboard**: what each player is playing right now (format, position, volume), a listening history
   (tracks played for more than 10 s), live activity, server transfers and 14-day/30-day stats. It runs as a
   separate process, so you can restart it without touching the server.
@@ -233,7 +260,8 @@ SupaVic (Living room PC)
 
 - System tray icon, start with Windows, single instance: opening it again just opens the panel.
 - Installer and portable builds, created by GitHub Actions on every release.
-- The firewall rule only allows **your local subnet**. Changing settings is only possible from private IPs.
+- The firewall rule only allows **your local subnet**. Changing settings is only possible from private IPs, and
+  only from the panel itself (other web pages can't send it requests).
   Nothing leaves your network: no telemetry and no cloud.
 
 ## How it works
@@ -281,6 +309,8 @@ Everything is editable in the control panel (**Settings**). It's stored in `conf
 | `vistas.plantillas.pista` | `{title}` | Track title format (`{title} ({subtitle})`, `{track}. {title}`…) |
 | `vistas.album_en_pistas` | `false` | Tracks show their album with the album title format |
 | `vistas.carpeta_en_iguales` | `true` | Add the folder name when two albums would show the same title |
+| `vistas.discos` | `false` | Multi-disc albums: a "» subtitle" folder before each disc |
+| `vistas.numeracion_seguida` | `false` | Multi-disc albums: number tracks 1…N straight through |
 | `vistas.tags_artista` / `tags_artista_album` | `display artist, …` | Tags with the credited artist name to show (Picard `DISPLAY ARTIST`); empty = `ARTIST` |
 | `musica.sin_indexar` | `[]` | Folders from `musica.carpetas` left out of the tag views and search (**Index tags** unticked); still browsable |
 | `musica.ignorar` | `*.part`, `.*`, … | Name patterns to hide (case-insensitive) |
